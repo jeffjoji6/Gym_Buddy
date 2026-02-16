@@ -4,3 +4,4 @@ sqlalchemy
 pydantic
 fuzzywuzzy
 python-Levenshtein
+sqlalchemy-libsql
