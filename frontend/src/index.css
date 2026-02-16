@@ -1,0 +1,279 @@
+:root {
+  --bg-color: #121212;
+  --surface-color: #1e1e1e;
+  --surface-highlight: #2c2c2c;
+  --primary-color: #bb86fc;
+  --secondary-color: #03dac6;
+  --text-color: #e0e0e0;
+  --text-dim: #a0a0a0;
+  --error-color: #cf6679;
+  --success-color: #03dac6;
+
+  --font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+  --spacing-unit: 8px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-family);
+  background-color: var(--bg-color);
+  color: var(--text-color);
+  -webkit-font-smoothing: antialiased;
+  font-size: 16px;
+  /* Base size */
+}
+
+button {
+  cursor: pointer;
+  border: none;
+  border-radius: 12px;
+  /* Smoother rounds */
+  font-weight: 700;
+  transition: all 0.2s;
+}
+
+input {
+  border: 1px solid var(--surface-highlight);
+  background: var(--surface-color);
+  color: var(--text-color);
+  border-radius: 8px;
+  padding: 12px;
+  /* Bigger padding */
+  font-size: 1.1rem;
+  /* Bigger text */
+}
+
+.container {
+  max-width: 600px;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 0;
+  margin-bottom: 1rem;
+}
+
+.card {
+  background: var(--surface-color);
+  border-radius: 16px;
+  padding: 1.25rem;
+  margin-bottom: 1rem;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+}
+
+.button-primary {
+  background: var(--primary-color);
+  color: #000;
+  padding: 1rem 1.5rem;
+  /* Bigger touch target */
+  font-size: 1.1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.button-secondary {
+  background: var(--surface-highlight);
+  color: var(--text-color);
+  padding: 0.75rem 1.25rem;
+  font-size: 1rem;
+}
+
+.button-danger {
+  background: var(--error-color);
+  color: #fff;
+  padding: 0.75rem 1.25rem;
+  font-size: 1rem;
+}
+
+.set-chip {
+  background: var(--surface-highlight);
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.set-chip:active {
+  border-color: var(--primary-color);
+  opacity: 0.8;
+}
+
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.8);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background: var(--surface-color);
+  padding: 2rem;
+  border-radius: 16px;
+  width: 80%;
+  max-width: 400px;
+}
+
+.user-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+  gap: 16px;
+  width: 100%;
+  margin-bottom: 24px;
+}
+
+.user-chip {
+  background: var(--surface-highlight);
+  color: var(--text-color);
+  padding: 16px;
+  border-radius: 12px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  min-height: 80px;
+}
+
+.user-chip:hover {
+  background: var(--primary-color);
+  color: #000;
+}
+
+.user-chip .delete-btn {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  background: rgba(0, 0, 0, 0.5);
+  color: #fff;
+  border-radius: 50%;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.user-chip:hover .delete-btn {
+  opacity: 1;
+}
+
+.add-user-btn {
+  border: 2px dashed var(--text-dim);
+  background: transparent;
+  color: var(--text-dim);
+}
+
+.add-user-btn:hover {
+  border-color: var(--primary-color);
+  color: var(--primary-color);
+  background: rgba(187, 134, 252, 0.1);
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes wiggle {
+  0% {
+    transform: rotate(0deg);
+  }
+
+  25% {
+    transform: rotate(-3deg);
+  }
+
+  50% {
+    transform: rotate(3deg);
+  }
+
+  75% {
+    transform: rotate(-1deg);
+  }
+
+  100% {
+    transform: rotate(0deg);
+  }
+}
+
+@keyframes pulse-green {
+  0% {
+    box-shadow: 0 0 0 0 rgba(3, 218, 198, 0.7);
+  }
+
+  70% {
+    box-shadow: 0 0 0 10px rgba(3, 218, 198, 0);
+  }
+
+  100% {
+    box-shadow: 0 0 0 0 rgba(3, 218, 198, 0);
+  }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.6s ease-out;
+}
+
+.animate-slide-up {
+  animation: slideUp 0.6s ease-out forwards;
+}
+
+.animate-wiggle {
+  animation: wiggle 0.3s ease-in-out infinite;
+}
+
+.success-pulse {
+  animation: pulse-green 0.5s ease-out;
+}
+
+/* Override user-chip for animations */
+.user-chip {
+  /* Ensure transitions don't conflict, but we defined them above */
+  transition: transform 0.2s, background 0.2s, opacity 0.2s;
+}
+
+.user-chip.deleting {
+  background: var(--error-color);
+  color: #fff;
+}
