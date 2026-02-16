@@ -4,4 +4,4 @@ sqlalchemy
 pydantic
 fuzzywuzzy
 python-Levenshtein
-sqlalchemy-libsql
+psycopg2-binary
