@@ -7,12 +7,14 @@ import os
 # Use DATABASE_URL env var if available, otherwise local sqlite
 SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./gym_buddy.db")
 
-# Configure connection args based on database type
+# PostgreSQL URLs from Vercel start with "postgres://" but SQLAlchemy needs "postgresql://"
+if SQLALCHEMY_DATABASE_URL.startswith("postgres://"):
+    SQLALCHEMY_DATABASE_URL = SQLALCHEMY_DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
+# Configure connection args
+connect_args = {}
 if "sqlite" in SQLALCHEMY_DATABASE_URL:
     connect_args = {"check_same_thread": False}
-else:
-    # PostgreSQL or other databases
-    connect_args = {}
 
 engine = create_engine(
     SQLALCHEMY_DATABASE_URL, connect_args=connect_args
