@@ -1,9 +1,10 @@
 from .database import SessionLocal
-from .models_db import User, Workout, Exercise, SetLog as DBSetLog
+from .models_db import User, Workout, Exercise, SetLog as DBSetLog, WorkoutSession
 from .models import Exercise as APIExercise, SetLog as APISetLog, UserSchema
 from fuzzywuzzy import process
 from sqlalchemy.orm import joinedload
-from sqlalchemy import func
+from sqlalchemy import func, desc, extract
+from datetime import datetime, timedelta
 
 class DataManager:
     def __init__(self):
@@ -312,6 +313,158 @@ class DataManager:
             return True, f"Workout '{workout_type}' deleted successfully"
         except Exception as e:
             db.rollback()
+            return False, str(e)
+        finally:
+            db.close()
+
+    def start_session(self, username: str, workout_type: str, split: str = "A"):
+        db = self.get_db()
+        try:
+            user = self.ensure_user(db, username)
+            workout = db.query(Workout).filter(Workout.name == workout_type).first()
+            
+            # Start session
+            session = WorkoutSession(
+                user_id=user.id,
+                workout_id=workout.id if workout else None, # Allow null if workout type deleted
+                split=split,
+                start_time=datetime.utcnow()
+            )
+            db.add(session)
+            db.commit()
+            db.refresh(session)
+            return True, session.id
+        except Exception as e:
+            db.rollback()
+            return False, str(e)
+        finally:
+            db.close()
+
+    def end_session(self, session_id: int, username: str, notes: str = None):
+        db = self.get_db()
+        try:
+            user = self.ensure_user(db, username)
+            session = db.query(WorkoutSession).filter(WorkoutSession.id == session_id, WorkoutSession.user_id == user.id).first()
+            
+            if not session:
+                return False, "Session not found", None, None, []
+                
+            session.end_time = datetime.utcnow()
+            session.notes = notes
+            
+            # Calculate duration
+            duration_minutes = int((session.end_time - session.start_time).total_seconds() / 60)
+            
+            # Calculate volume & Check PRs
+            # 1. Get all sets created during this session window by this user for the workout 
+            # (Approximation since we didn't link sets to session yet, using time window + user + workout)
+            
+            # Ideally frontend passes sets or we link them. 
+            # For now, let's look for sets logged AFTER start_time by this user
+            
+            sets_in_window = db.query(DBSetLog).filter(
+                DBSetLog.user_id == user.id,
+                DBSetLog.timestamp >= session.start_time,
+                DBSetLog.timestamp <= session.end_time
+            ).all()
+
+            total_volume = 0
+            prs = []
+            
+            # Group by exercise to check max
+            exercise_maxes = {} 
+            
+            for s in sets_in_window:
+                vol = s.weight * s.reps
+                total_volume += vol
+                
+                if s.exercise_id not in exercise_maxes:
+                    exercise_maxes[s.exercise_id] = {'max_weight': 0, 'max_reps_at_weight': 0, 'obj': s}
+                
+                curr = exercise_maxes[s.exercise_id]
+                if s.weight > curr['max_weight']:
+                    curr['max_weight'] = s.weight
+                    curr['max_reps_at_weight'] = s.reps
+                elif s.weight == curr['max_weight'] and s.reps > curr['max_reps_at_weight']:
+                    curr['max_reps_at_weight'] = s.reps
+
+            session.total_volume = total_volume
+            
+            # Check against legacy history (sets BEFORE session start)
+            for ex_id, data in exercise_maxes.items():
+                # Find max weight ever lifted before this session
+                history = db.query(func.max(DBSetLog.weight)).filter(
+                    DBSetLog.user_id == user.id,
+                    DBSetLog.exercise_id == ex_id,
+                    DBSetLog.timestamp < session.start_time
+                ).scalar()
+                
+                prev_max = history if history else 0
+                
+                exercise_name = data['obj'].exercise.name
+                
+                if data['max_weight'] > prev_max:
+                    prs.append(f"New PR on {exercise_name}: {data['max_weight']}kg x {data['max_reps_at_weight']}")
+                    
+            # Save PR details
+            pr_exercise_names = [p.split(":")[0].replace("New PR on ", "") for p in prs]
+            session.pr_details = ", ".join(pr_exercise_names)
+            session.pr_count = len(prs)
+            
+            db.commit()
+            return True, "Session ended", duration_minutes, total_volume, prs
+            
+        except Exception as e:
+            db.rollback()
+            return False, str(e), None, None, None
+        finally:
+            db.close()
+
+    def get_user_stats(self, username: str):
+        db = self.get_db()
+        try:
+            user = self.ensure_user(db, username)
+            
+            # 1. This Week's Stats
+            today = datetime.utcnow()
+            start_of_week = today - timedelta(days=today.weekday())
+            start_of_week = start_of_week.replace(hour=0, minute=0, second=0, microsecond=0)
+            
+            sessions_this_week = db.query(WorkoutSession).filter(
+                WorkoutSession.user_id == user.id,
+                WorkoutSession.start_time >= start_of_week
+            ).all()
+            
+            workouts_this_week = len(sessions_this_week)
+            prs_this_week = sum(s.pr_count for s in sessions_this_week if s.pr_count)
+                
+            # 2. Recent Activity
+            recent_sessions = db.query(WorkoutSession).options(joinedload(WorkoutSession.workout)).filter(
+                WorkoutSession.user_id == user.id
+            ).order_by(desc(WorkoutSession.start_time)).limit(5).all()
+            
+            activity = []
+            for s in recent_sessions:
+                workout_name = s.workout.name if s.workout else "Unknown"
+                if s.split:
+                    workout_name += f" ({s.split})"
+                    
+                activity.append({
+                    "date": s.start_time.isoformat(), 
+                    "workout": workout_name,
+                    "duration": int((s.end_time - s.start_time).total_seconds() / 60) if s.end_time and s.start_time else 0,
+                    "volume": s.total_volume,
+                    "pr_count": s.pr_count or 0,
+                    "pr_details": s.pr_details if s.pr_count and s.pr_details else None
+                })
+                
+            return True, {
+                "workouts_this_week": workouts_this_week,
+                "prs_this_week": prs_this_week,
+                "recent_activity": activity
+            }
+            
+        except Exception as e:
             return False, str(e)
         finally:
             db.close()

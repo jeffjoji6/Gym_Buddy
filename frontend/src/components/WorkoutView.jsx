@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useSearchParams, Link } from 'react-router-dom';
-import { getWorkout, logSet, updateSet, deleteSet, parseCommand } from '../services/api';
-import { ChevronLeft, Mic, ChevronDown, Check, Activity, Trash2 } from 'lucide-react';
+import { getWorkout, logSet, updateSet, deleteSet, parseCommand, startSession, endSession } from '../services/api';
+import { ChevronLeft, ChevronDown, Mic, Check, Trash2, Trophy, Clock, BarChart2, Activity } from 'lucide-react';
 import { useUser } from '../context/UserContext';
 import EditSetModal from './EditSetModal';
+import { useNavigate } from 'react-router-dom';
 
 const ExerciseCard = ({ exercise, onLog, onUpdate, onDelete, onDeleteExercise, week, isEditing }) => {
     const [expanded, setExpanded] = useState(false);
@@ -123,6 +124,7 @@ const ExerciseCard = ({ exercise, onLog, onUpdate, onDelete, onDeleteExercise, w
                             <input
                                 type="number"
                                 inputMode="decimal"
+                                pattern="[0-9]*"
                                 value={weight}
                                 onChange={(e) => setWeight(e.target.value)}
                                 placeholder="0"
@@ -134,6 +136,7 @@ const ExerciseCard = ({ exercise, onLog, onUpdate, onDelete, onDeleteExercise, w
                             <input
                                 type="number"
                                 inputMode="numeric"
+                                pattern="[0-9]*"
                                 value={reps}
                                 onChange={(e) => setReps(e.target.value)}
                                 placeholder="0"
@@ -169,6 +172,7 @@ export default function WorkoutView() {
     const week = parseInt(searchParams.get('week') || '1');
     const split = searchParams.get('split') || 'A';
     const { user } = useUser();
+    const navigate = useNavigate();
 
     const [exercises, setExercises] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -176,6 +180,13 @@ export default function WorkoutView() {
     const [voiceStatus, setVoiceStatus] = useState('');
     const [trigger, setTrigger] = useState(0);
     const [isEditing, setIsEditing] = useState(false);
+
+    // Session State
+    const [sessionId, setSessionId] = useState(null);
+    const [summaryData, setSummaryData] = useState(null);
+    const [showSummary, setShowSummary] = useState(false);
+    const [finishNotes, setFinishNotes] = useState('');
+    const [finishing, setFinishing] = useState(false);
 
     const [showAddExercise, setShowAddExercise] = useState(false);
     const [newExerciseName, setNewExerciseName] = useState('');
@@ -195,6 +206,17 @@ export default function WorkoutView() {
         };
         load();
     }, [type, week, split, trigger, user]);
+
+    // Start Session on Mount
+    useEffect(() => {
+        if (user && type && !sessionId) {
+            startSession(user, type, split).then(res => {
+                if (res.success) {
+                    setSessionId(res.session_id);
+                }
+            });
+        }
+    }, [user, type, split]);
 
     // Scroll to active week
     useEffect(() => {
@@ -238,7 +260,7 @@ export default function WorkoutView() {
         e.preventDefault();
         if (newExerciseName.trim()) {
             const { addExercise } = await import('../services/api');
-            await addExercise(type, newExerciseName.trim(), user.username, split);
+            await addExercise(type, newExerciseName.trim(), user, split);
             setTrigger(t => t + 1);
             setShowAddExercise(false);
             setNewExerciseName('');
@@ -297,8 +319,29 @@ export default function WorkoutView() {
 
     const handleDeleteExercise = async (exerciseName) => {
         const { deleteExercise } = await import('../services/api');
-        await deleteExercise(type, exerciseName, user.username);
+        await deleteExercise(type, exerciseName, user);
         setTrigger(t => t + 1);
+    };
+
+    const handleFinishWorkout = async () => {
+        if (!sessionId) return;
+        setFinishing(true);
+        try {
+            const res = await endSession(sessionId, user, finishNotes);
+            if (res.success) {
+                setSummaryData(res);
+                setShowSummary(true);
+            }
+        } catch (e) {
+            console.error(e);
+            alert("Failed to finish workout");
+        }
+        setFinishing(false);
+    };
+
+    const closeSummary = () => {
+        setShowSummary(false);
+        navigate('/');
     };
 
     return (
@@ -461,7 +504,109 @@ export default function WorkoutView() {
                         </form>
                     </div>
                 </div>
-            )}
-        </div>
+            )
+            }
+
+            {/* Finish Workout Button */}
+            {
+                !loading && exercises.length > 0 && (
+                    <div style={{ padding: '0 1rem 120px 1rem' }}>
+                        <button
+                            className="button-primary"
+                            style={{ width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', background: 'var(--success-color)' }}
+                            onClick={handleFinishWorkout}
+                            disabled={finishing}
+                        >
+                            {finishing ? 'Finishing...' : <><Check /> Finish Workout</>}
+                        </button>
+                    </div>
+                )
+            }
+
+            {/* Summary Modal */}
+            {
+                showSummary && summaryData && (
+                    <div className="modal-overlay" style={{ display: 'flex', alignItems: 'flex-end', zIndex: 1000 }}>
+                        <div className="modal-content animate-slide-up" style={{
+                            background: 'var(--surface-color)',
+                            height: '70vh',
+                            width: '100%',
+                            borderRadius: '24px 24px 0 0',
+                            overflowY: 'auto',
+                            padding: '24px',
+                            color: 'var(--text-color)'
+                        }} onClick={e => e.stopPropagation()}>
+                            <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
+                                <Trophy size={64} color="#ffd700" style={{ marginBottom: '1rem' }} />
+                                <h2 style={{ fontSize: '2rem', margin: '0 0 8px 0' }}>Workout Complete!</h2>
+                                <p style={{ color: 'var(--text-dim)' }}>Great job, {user?.username}!</p>
+                            </div>
+
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '2rem' }}>
+                                <div className="card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '16px' }}>
+                                    <Clock size={24} color="var(--primary-color)" style={{ marginBottom: '8px' }} />
+                                    <span style={{ fontSize: '0.9rem', color: 'var(--text-dim)' }}>Duration</span>
+                                    <span style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>{summaryData.duration_minutes}m</span>
+                                </div>
+                                <div className="card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '16px' }}>
+                                    <BarChart2 size={24} color="var(--success-color)" style={{ marginBottom: '8px' }} />
+                                    <span style={{ fontSize: '0.9rem', color: 'var(--text-dim)' }}>Volume</span>
+                                    <span style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>{(summaryData.total_volume / 1000).toFixed(1)}k</span>
+                                    <span style={{ fontSize: '0.8rem', color: 'var(--text-dim)' }}>kg</span>
+                                </div>
+                            </div>
+
+                            {summaryData.prs && summaryData.prs.length > 0 && (
+                                <div style={{ marginBottom: '2rem' }}>
+                                    <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <Trophy size={20} color="#ffd700" />
+                                        New Records
+                                    </h3>
+                                    {summaryData.prs.map((pr, i) => (
+                                        <div key={i} style={{
+                                            background: 'rgba(255, 215, 0, 0.1)',
+                                            border: '1px solid #ffd700',
+                                            padding: '12px',
+                                            borderRadius: '8px',
+                                            marginBottom: '8px',
+                                            color: '#ffd700'
+                                        }}>
+                                            {pr}
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+
+                            <div style={{ marginBottom: '2rem' }}>
+                                <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-dim)' }}>Notes</label>
+                                <textarea
+                                    value={finishNotes}
+                                    onChange={e => setFinishNotes(e.target.value)}
+                                    placeholder="How did it feel?"
+                                    style={{
+                                        width: '100%',
+                                        minHeight: '80px',
+                                        background: 'var(--surface-highlight)',
+                                        border: 'none',
+                                        borderRadius: '12px',
+                                        padding: '12px',
+                                        color: 'var(--text-color)',
+                                        fontSize: '1rem'
+                                    }}
+                                />
+                            </div>
+
+                            <button
+                                className="button-primary"
+                                style={{ width: '100%' }}
+                                onClick={closeSummary}
+                            >
+                                Done
+                            </button>
+                        </div>
+                    </div>
+                )
+            }
+        </div >
     );
 }

@@ -11,6 +11,7 @@ class User(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     sets = relationship("SetLog", back_populates="user")
+    sessions = relationship("WorkoutSession", back_populates="user")
 
 class Workout(Base):
     __tablename__ = "workouts"
@@ -19,6 +20,7 @@ class Workout(Base):
     name = Column(String, unique=True, index=True) # Push, Pull, Legs
 
     exercises = relationship("Exercise", back_populates="workout")
+    sessions = relationship("WorkoutSession", back_populates="workout")
 
 class Exercise(Base):
     __tablename__ = "exercises"
@@ -47,3 +49,22 @@ class SetLog(Base):
 
     user = relationship("User", back_populates="sets")
     exercise = relationship("Exercise", back_populates="sets")
+    # session = relationship("WorkoutSession", back_populates="sets") # Optional: direct link if needed
+
+class WorkoutSession(Base):
+    __tablename__ = "workout_sessions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    workout_id = Column(Integer, ForeignKey("workouts.id"))
+    split = Column(String, default="A")
+    start_time = Column(DateTime)
+    end_time = Column(DateTime, nullable=True)
+    total_volume = Column(Float, default=0.0)
+    pr_count = Column(Integer, default=0)
+    pr_details = Column(String, nullable=True) # JSON or comma-separated list of exercises
+    notes = Column(String, nullable=True)
+
+    user = relationship("User", back_populates="sessions")
+    workout = relationship("Workout", back_populates="sessions")
+

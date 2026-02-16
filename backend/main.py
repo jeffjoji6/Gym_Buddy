@@ -5,7 +5,9 @@ from .models import (
     LogRequest, LogResponse, WorkoutData, UserLogRequest, 
     UpdateSetRequest, DeleteSetRequest, GenericResponse,
     UserListResponse, CreateWorkoutRequest, AddExerciseRequest,
-    WorkoutListResponse
+    UserListResponse, CreateWorkoutRequest, AddExerciseRequest,
+    WorkoutListResponse, StartSessionResponse, StartSessionRequest,
+    EndSessionResponse, EndSessionRequest, DashboardStatsResponse
 )
 from .data_manager import DataManager
 from .nlp import NLPProcessor
@@ -133,3 +135,30 @@ async def delete_exercise(workout_type: str, exercise_name: str, user: str = Non
 async def delete_workout(workout_type: str):
     success, message = data_manager.delete_workout(workout_type)
     return GenericResponse(success=success, message=message)
+
+@app.post("/api/session/start", response_model=StartSessionResponse)
+async def start_session(request: StartSessionRequest):
+    success, session_id = data_manager.start_session(request.user, request.workout_type, request.split)
+    if not success:
+        return StartSessionResponse(success=False, message=str(session_id))
+    return StartSessionResponse(success=True, session_id=session_id)
+
+@app.post("/api/session/end", response_model=EndSessionResponse)
+async def end_session(request: EndSessionRequest):
+    success, message, duration, volume, prs = data_manager.end_session(request.session_id, request.user, request.notes)
+    if not success:
+        return EndSessionResponse(success=False, message=message)
+    return EndSessionResponse(
+        success=True, 
+        message=message,
+        duration_minutes=duration,
+        total_volume=volume,
+        prs=prs
+    )
+
+@app.get("/api/dashboard/stats", response_model=DashboardStatsResponse)
+async def get_dashboard_stats(user: str):
+    success, data = data_manager.get_user_stats(user)
+    if not success:
+        return DashboardStatsResponse(success=False, message=str(data))
+    return DashboardStatsResponse(success=True, data=data)

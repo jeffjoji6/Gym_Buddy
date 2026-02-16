@@ -4,6 +4,7 @@ import WorkoutView from './components/WorkoutView';
 import Layout from './components/Layout';
 import Login from './components/Login';
 import Admin from './components/Admin';
+import Dashboard from './components/Dashboard';
 import { UserProvider, useUser } from './context/UserContext';
 
 // Authenticated Wrapper to check if user is logged in
@@ -16,6 +17,7 @@ function AuthenticatedRoutes() {
             <Routes>
                 <Route path="/" element={<Home />} />
                 <Route path="/workout/:type" element={<WorkoutView />} />
+                <Route path="/dashboard" element={<Dashboard />} />
                 <Route path="/admin" element={<Admin />} />
                 <Route path="*" element={<Navigate to="/" />} />
             </Routes>

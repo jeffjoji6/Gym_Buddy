@@ -74,3 +74,18 @@ export const deleteWorkout = async (workoutType) => {
     const response = await api.delete(`/workout/${workoutType}`);
     return response.data;
 };
+
+export const startSession = async (user, workoutType, split = "A") => {
+    const response = await api.post('/session/start', { user, workout_type: workoutType, split });
+    return response.data;
+};
+
+export const endSession = async (sessionId, user, notes = "") => {
+    const response = await api.post('/session/end', { session_id: sessionId, user, notes });
+    return response.data;
+};
+
+export const getDashboardStats = async (user) => {
+    const response = await api.get(`/dashboard/stats?user=${user}`);
+    return response.data;
+};

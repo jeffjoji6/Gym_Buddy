@@ -66,5 +66,42 @@ class AddExerciseRequest(BaseModel):
     user: str | None = None
     split: str = "A"
 
+class StartSessionRequest(BaseModel):
+    user: str
+    workout_type: str
+    split: str = "A"
+
+class StartSessionResponse(BaseModel):
+    success: bool
+    session_id: int | None = None
+    message: str | None = None
+
+class EndSessionRequest(BaseModel):
+    session_id: int
+    user: str
+    notes: str | None = None
+
+class EndSessionResponse(BaseModel):
+    success: bool
+    message: str | None = None
+    duration_minutes: int | None = None
+    total_volume: float | None = None
+    prs: list[str] | None = None
+
+
+
+class ActivityItem(BaseModel):
+    date: str
+    workout: str
+    duration: int
+    volume: float
+    pr_count: int
+    pr_details: str | None = None
+
+class DashboardStatsResponse(BaseModel):
+    success: bool
+    data: dict | None = None # { "workouts_this_week": int, "prs_this_week": int, "recent_activity": [] }
+    message: str | None = None
+
 class WorkoutListResponse(BaseModel):
     workouts: List[str]

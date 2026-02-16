@@ -66,6 +66,7 @@ export default function EditSetModal({ set, onSave, onDelete, onClose }) {
                             <input
                                 type="number"
                                 inputMode="decimal"
+                                pattern="[0-9]*"
                                 value={weight}
                                 onChange={e => setWeight(e.target.value)}
                                 style={{ flex: 1, boxSizing: 'border-box', padding: '16px', fontSize: '1.2rem', textAlign: 'center', minWidth: 0 }}
@@ -81,6 +82,7 @@ export default function EditSetModal({ set, onSave, onDelete, onClose }) {
                             <input
                                 type="number"
                                 inputMode="numeric"
+                                pattern="[0-9]*"
                                 value={reps}
                                 onChange={e => setReps(e.target.value)}
                                 style={{ flex: 1, boxSizing: 'border-box', padding: '16px', fontSize: '1.2rem', textAlign: 'center', minWidth: 0 }}
