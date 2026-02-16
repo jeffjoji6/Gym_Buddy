@@ -7,6 +7,10 @@ import os
 # Use DATABASE_URL env var if available (connection to Turso/LibSQL), otherwise local sqlite
 SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./gym_buddy.db")
 
+# Ensure correct driver prefix for Turso
+if SQLALCHEMY_DATABASE_URL.startswith("libsql://"):
+    SQLALCHEMY_DATABASE_URL = "sqlite+" + SQLALCHEMY_DATABASE_URL
+
 connect_args = {"check_same_thread": False} if "sqlite" in SQLALCHEMY_DATABASE_URL else {}
 
 engine = create_engine(

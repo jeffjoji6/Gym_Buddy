@@ -4,6 +4,8 @@ const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8000/api',
 });
 
+console.log('API Base URL:', api.defaults.baseURL);
+
 export const getUsers = async () => {
     const response = await api.get('/users');
     return response.data; // returns { users: [] }

@@ -1,5 +1,10 @@
 import re
-from fuzzywuzzy import process
+
+try:
+    from fuzzywuzzy import process
+except ImportError:
+    process = None
+    print("Warning: fuzzywuzzy not installed or failed to import. NLP features will be limited.")
 
 class NLPProcessor:
     def parse_command(self, text: str, available_exercises: list[str]):
@@ -9,6 +14,9 @@ class NLPProcessor:
         """
         text = text.lower()
         
+        if not process:
+            return None, "NLP module not available (dependency missing)"
+
         # 1. Find exercise
         best_match, score = process.extractOne(text, available_exercises)
         if score < 60: # Threshold
