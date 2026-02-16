@@ -11,8 +11,15 @@ from .models import (
 )
 from .data_manager import DataManager
 from .nlp import NLPProcessor
+from .database import Base, engine
 
 app = FastAPI()
+
+# Create database tables on startup
+@app.on_event("startup")
+async def startup_event():
+    """Initialize database tables if they don't exist."""
+    Base.metadata.create_all(bind=engine)
 
 app.add_middleware(
     CORSMiddleware,
