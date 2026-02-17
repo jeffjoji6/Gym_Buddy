@@ -190,6 +190,7 @@ export default function WorkoutView() {
 
     const [showAddExercise, setShowAddExercise] = useState(false);
     const [newExerciseName, setNewExerciseName] = useState('');
+    const [showStartReminder, setShowStartReminder] = useState(false);
 
     // Timer State
     const [startTime, setStartTime] = useState(null);
@@ -244,12 +245,8 @@ export default function WorkoutView() {
     const handleLogSet = async (exerciseName, weight, reps) => {
         // Remind user to start workout if they haven't
         if (!startTime) {
-            const shouldStart = window.confirm("You haven't started your workout yet! Would you like to start now?");
-            if (shouldStart) {
-                await handleStartWorkout();
-            } else {
-                return; // Don't log the set if user doesn't want to start
-            }
+            setShowStartReminder(true);
+            return; // Don't log the set yet
         }
 
         await logSet({
@@ -261,6 +258,11 @@ export default function WorkoutView() {
             user: user
         });
         setTrigger(t => t + 1);
+    };
+
+    const handleStartReminderConfirm = async () => {
+        setShowStartReminder(false);
+        await handleStartWorkout();
     };
 
     const handleUpdateSet = async (id, weight, reps) => {
@@ -683,6 +685,35 @@ export default function WorkoutView() {
                     </div>
                 )
             }
+
+            {/* Start Workout Reminder Modal */}
+            {showStartReminder && (
+                <div className="modal-overlay" onClick={() => setShowStartReminder(false)}>
+                    <div className="modal-content animate-slide-up" onClick={e => e.stopPropagation()} style={{ maxWidth: '400px' }}>
+                        <h3 style={{ marginBottom: '1rem', textAlign: 'center' }}>Start Your Workout</h3>
+                        <p style={{ color: 'var(--text-dim)', textAlign: 'center', marginBottom: '2rem' }}>
+                            You haven't started your workout yet! Would you like to start the timer now?
+                        </p>
+                        <div style={{ display: 'flex', gap: '1rem' }}>
+                            <button
+                                type="button"
+                                className="button-secondary"
+                                onClick={() => setShowStartReminder(false)}
+                                style={{ flex: 1 }}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                className="button-primary"
+                                onClick={handleStartReminderConfirm}
+                                style={{ flex: 1, background: 'var(--success-color)' }}
+                            >
+                                Start Now
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div >
     );
 }
