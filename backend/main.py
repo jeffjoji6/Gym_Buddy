@@ -14,13 +14,76 @@ from .data_manager import DataManager
 from .nlp import NLPProcessor
 from .database import Base, engine
 
+from sqlalchemy import text, inspect as sa_inspect
+
 app = FastAPI()
 
 # Create database tables on startup
 @app.on_event("startup")
 async def startup_event():
-    """Initialize database tables if they don't exist."""
+    """Initialize database tables and run migrations."""
+    # Create any missing tables
     Base.metadata.create_all(bind=engine)
+    
+    # Run column migrations for existing tables
+    _run_migrations()
+
+def _run_migrations():
+    """Add missing columns to existing tables (idempotent)."""
+    try:
+        inspector = sa_inspect(engine)
+        
+        def col_exists(table, column):
+            try:
+                return column in [c['name'] for c in inspector.get_columns(table)]
+            except Exception:
+                return False
+        
+        with engine.connect() as conn:
+            # users table
+            if not col_exists("users", "is_admin"):
+                conn.execute(text("ALTER TABLE users ADD COLUMN is_admin INTEGER DEFAULT 0"))
+                conn.commit()
+            if not col_exists("users", "created_at"):
+                conn.execute(text("ALTER TABLE users ADD COLUMN created_at TIMESTAMP DEFAULT NOW()"))
+                conn.commit()
+            
+            # workouts table
+            if not col_exists("workouts", "created_by_user_id"):
+                conn.execute(text("ALTER TABLE workouts ADD COLUMN created_by_user_id INTEGER REFERENCES users(id)"))
+                conn.commit()
+            
+            # exercises table
+            if not col_exists("exercises", "user_id"):
+                conn.execute(text("ALTER TABLE exercises ADD COLUMN user_id INTEGER REFERENCES users(id)"))
+                conn.commit()
+            if not col_exists("exercises", "split"):
+                conn.execute(text("ALTER TABLE exercises ADD COLUMN split VARCHAR DEFAULT 'A'"))
+                conn.commit()
+            if not col_exists("exercises", "setup_notes"):
+                conn.execute(text("ALTER TABLE exercises ADD COLUMN setup_notes TEXT"))
+                conn.commit()
+            
+            # sets table
+            if not col_exists("sets", "timestamp"):
+                conn.execute(text("ALTER TABLE sets ADD COLUMN timestamp TIMESTAMP DEFAULT NOW()"))
+                conn.commit()
+            
+            # workout_sessions table columns
+            if "workout_sessions" in inspector.get_table_names():
+                if not col_exists("workout_sessions", "split"):
+                    conn.execute(text("ALTER TABLE workout_sessions ADD COLUMN split VARCHAR DEFAULT 'A'"))
+                    conn.commit()
+                if not col_exists("workout_sessions", "pr_count"):
+                    conn.execute(text("ALTER TABLE workout_sessions ADD COLUMN pr_count INTEGER DEFAULT 0"))
+                    conn.commit()
+                if not col_exists("workout_sessions", "pr_details"):
+                    conn.execute(text("ALTER TABLE workout_sessions ADD COLUMN pr_details TEXT"))
+                    conn.commit()
+        
+        print("✓ Database migrations complete")
+    except Exception as e:
+        print(f"Migration warning (non-fatal): {e}")
 
 app.add_middleware(
     CORSMiddleware,
