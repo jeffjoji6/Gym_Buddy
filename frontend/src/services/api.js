@@ -95,3 +95,14 @@ export const getDashboardStats = async (user) => {
     const response = await api.get(`/dashboard/stats?user=${user}`);
     return response.data;
 };
+
+export const updateExerciseNotes = async (workoutType, exerciseName, setupNotes, user, split = "A") => {
+    const response = await api.put('/exercise/notes', {
+        workout_type: workoutType,
+        exercise_name: exerciseName,
+        setup_notes: setupNotes,
+        user,
+        split
+    });
+    return response.data;
+};

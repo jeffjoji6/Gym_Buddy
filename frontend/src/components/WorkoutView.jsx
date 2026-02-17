@@ -1,17 +1,19 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useSearchParams, Link } from 'react-router-dom';
-import { getWorkout, logSet, updateSet, deleteSet, parseCommand, startSession, endSession } from '../services/api';
+import { getWorkout, logSet, updateSet, deleteSet, parseCommand, startSession, endSession, updateExerciseNotes } from '../services/api';
 import { ChevronLeft, ChevronDown, Mic, Check, Trash2, Trophy, Clock, BarChart2, Activity } from 'lucide-react';
 import { useUser } from '../context/UserContext';
 import EditSetModal from './EditSetModal';
 import { useNavigate } from 'react-router-dom';
 
-const ExerciseCard = ({ exercise, onLog, onUpdate, onDelete, onDeleteExercise, week, isEditing }) => {
+const ExerciseCard = ({ exercise, onLog, onUpdate, onDelete, onDeleteExercise, week, isEditing, onUpdateNotes, workoutType, user, split }) => {
     const [expanded, setExpanded] = useState(false);
+    const [notesExpanded, setNotesExpanded] = useState(false);
     const sets = exercise.sets || [];
 
     const [weight, setWeight] = useState('');
     const [reps, setReps] = useState('');
+    const [notes, setNotes] = useState(exercise.setup_notes || '');
 
     const [editingSet, setEditingSet] = useState(null);
     const [justLogged, setJustLogged] = useState(false);
@@ -153,6 +155,68 @@ const ExerciseCard = ({ exercise, onLog, onUpdate, onDelete, onDeleteExercise, w
                     </div>
                 </div>
             )}
+
+            {/* Setup Notes Section */}
+            <div style={{ marginTop: '1rem', borderTop: '1px solid var(--surface-highlight)', paddingTop: '0.5rem' }}>
+                <div
+                    onClick={() => setNotesExpanded(!notesExpanded)}
+                    style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        cursor: 'pointer',
+                        padding: '8px 0'
+                    }}
+                >
+                    <span style={{ fontSize: '0.9rem', color: 'var(--text-dim)', fontWeight: '500' }}>
+                        Setup Notes
+                    </span>
+                    <ChevronDown
+                        size={18}
+                        style={{
+                            transform: notesExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
+                            transition: 'transform 0.2s',
+                            color: 'var(--text-dim)'
+                        }}
+                    />
+                </div>
+
+                {notesExpanded && (
+                    <div className="animate-fade-in" style={{ marginTop: '0.5rem' }}>
+                        <textarea
+                            value={notes}
+                            onChange={(e) => setNotes(e.target.value)}
+                            placeholder="e.g., Bench at 30°, Cable at notch 5, Seat position 3"
+                            style={{
+                                width: '100%',
+                                minHeight: '60px',
+                                background: 'var(--surface-highlight)',
+                                border: '1px solid var(--surface-highlight)',
+                                borderRadius: '8px',
+                                padding: '8px',
+                                color: 'var(--text-color)',
+                                fontSize: '0.9rem',
+                                resize: 'vertical',
+                                fontFamily: 'inherit'
+                            }}
+                        />
+                        <button
+                            onClick={async () => {
+                                await onUpdateNotes(exercise.name, notes);
+                            }}
+                            className="button-secondary"
+                            style={{
+                                marginTop: '0.5rem',
+                                width: '100%',
+                                fontSize: '0.85rem',
+                                padding: '8px'
+                            }}
+                        >
+                            Save Notes
+                        </button>
+                    </div>
+                )}
+            </div>
 
             {editingSet && (
                 <EditSetModal
@@ -350,6 +414,11 @@ export default function WorkoutView() {
         setTrigger(t => t + 1);
     };
 
+    const handleUpdateNotes = async (exerciseName, setupNotes) => {
+        await updateExerciseNotes(type, exerciseName, setupNotes, user, split);
+        setTrigger(t => t + 1);
+    };
+
     const formatTime = (seconds) => {
         const hrs = Math.floor(seconds / 3600);
         const mins = Math.floor((seconds % 3600) / 60);
@@ -515,6 +584,10 @@ export default function WorkoutView() {
                                 onUpdate={handleUpdateSet}
                                 onDelete={handleDeleteSet}
                                 onDeleteExercise={handleDeleteExercise}
+                                onUpdateNotes={handleUpdateNotes}
+                                workoutType={type}
+                                user={user}
+                                split={split}
                                 week={week}
                                 isEditing={isEditing}
                             />

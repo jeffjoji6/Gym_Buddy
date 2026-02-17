@@ -7,7 +7,8 @@ from .models import (
     UserListResponse, CreateWorkoutRequest, AddExerciseRequest,
     UserListResponse, CreateWorkoutRequest, AddExerciseRequest,
     WorkoutListResponse, StartSessionResponse, StartSessionRequest,
-    EndSessionResponse, EndSessionRequest, DashboardStatsResponse
+    EndSessionResponse, EndSessionRequest, DashboardStatsResponse,
+    UpdateExerciseNotesRequest
 )
 from .data_manager import DataManager
 from .nlp import NLPProcessor
@@ -131,7 +132,20 @@ async def create_workout(request: CreateWorkoutRequest):
 async def add_exercise(request: AddExerciseRequest):
     # Determine split from request if available, default to "A" (Split 1)
     split = getattr(request, 'split', 'A') 
-    success, message = data_manager.add_exercise(request.workout_type, request.name, request.default_sets, request.user, split)
+    setup_notes = getattr(request, 'setup_notes', None)
+    success, message = data_manager.add_exercise(request.workout_type, request.name, request.default_sets, request.user, split, setup_notes)
+    return GenericResponse(success=success, message=message)
+
+@app.put("/api/exercise/notes", response_model=GenericResponse)
+async def update_exercise_notes(request: UpdateExerciseNotesRequest):
+    split = getattr(request, 'split', 'A')
+    success, message = data_manager.update_exercise_notes(
+        request.workout_type, 
+        request.exercise_name, 
+        request.setup_notes, 
+        request.user, 
+        split
+    )
     return GenericResponse(success=success, message=message)
 
 @app.delete("/api/exercise", response_model=GenericResponse)

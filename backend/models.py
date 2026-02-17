@@ -13,6 +13,7 @@ class Exercise(BaseModel):
     name: str
     sets: List[SetLog] = []
     prev_week_summary: Optional[str] = None
+    setup_notes: Optional[str] = None
 
 class WorkoutData(BaseModel):
     workout_type: str
@@ -66,6 +67,7 @@ class AddExerciseRequest(BaseModel):
     default_sets: int = 3
     user: str | None = None
     split: str = "A"
+    setup_notes: str | None = None
 
 class StartSessionRequest(BaseModel):
     user: str
@@ -111,3 +113,10 @@ class WorkoutItem(BaseModel):
 
 class WorkoutListResponse(BaseModel):
     workouts: List[WorkoutItem]
+
+class UpdateExerciseNotesRequest(BaseModel):
+    workout_type: str
+    exercise_name: str
+    setup_notes: str
+    user: str | None = None
+    split: str = "A"

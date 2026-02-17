@@ -137,7 +137,8 @@ class DataManager:
                     id=ex.id,
                     name=ex.name,
                     sets=current_sets,
-                    prev_week_summary=prev_summary
+                    prev_week_summary=prev_summary,
+                    setup_notes=ex.setup_notes
                 ))
                 
             return result
@@ -254,7 +255,7 @@ class DataManager:
         finally:
             db.close()
 
-    def add_exercise(self, workout_type: str, name: str, default_sets: int = 3, username: str = None, split: str = "A"):
+    def add_exercise(self, workout_type: str, name: str, default_sets: int = 3, username: str = None, split: str = "A", setup_notes: str = None):
         db = self.get_db()
         try:
             workout = db.query(Workout).filter(Workout.name == workout_type).first()
@@ -279,11 +280,38 @@ class DataManager:
                 name=name, 
                 default_sets=default_sets,
                 user_id=user.id if user else None,
-                split=split
+                split=split,
+                setup_notes=setup_notes
             )
             db.add(exercise)
             db.commit()
             return True, f"Added '{name}' to {workout_type}"
+        except Exception as e:
+            db.rollback()
+            return False, str(e)
+        finally:
+            db.close()
+
+    def update_exercise_notes(self, workout_type: str, exercise_name: str, setup_notes: str, username: str = None, split: str = "A"):
+        """Update setup notes for an exercise"""
+        db = self.get_db()
+        try:
+            workout = db.query(Workout).filter(Workout.name == workout_type).first()
+            if not workout:
+                return False, "Workout type not found"
+            
+            exercise = db.query(Exercise).filter(
+                Exercise.workout_id == workout.id,
+                Exercise.name == exercise_name,
+                Exercise.split == split
+            ).first()
+            
+            if not exercise:
+                return False, f"Exercise '{exercise_name}' not found"
+            
+            exercise.setup_notes = setup_notes
+            db.commit()
+            return True, "Notes updated successfully"
         except Exception as e:
             db.rollback()
             return False, str(e)

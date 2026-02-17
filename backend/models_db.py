@@ -35,6 +35,7 @@ class Exercise(Base):
     name = Column(String, index=True)
     default_sets = Column(Integer, default=3)
     split = Column(String, default="A") # "A" for Split 1, "B" for Split 2
+    setup_notes = Column(String, nullable=True) # e.g., "Bench at 30°, Cable at notch 5"
 
     workout = relationship("Workout", back_populates="exercises")
     sets = relationship("SetLog", back_populates="exercise")
