@@ -13,6 +13,14 @@ class DataManager:
     def get_db(self):
         return SessionLocal()
 
+    def get_user_info(self, username: str):
+        db = self.get_db()
+        try:
+            user = self.ensure_user(db, username)
+            return {"id": user.id, "username": user.username, "is_admin": bool(user.is_admin)}
+        finally:
+            db.close()
+
     def ensure_user(self, db, username: str):
         user = db.query(User).filter(User.username == username).first()
         if not user:
@@ -30,11 +38,39 @@ class DataManager:
         finally:
             db.close()
 
-    def get_workouts(self):
+    def get_workouts(self, username: str = None):
         db = self.get_db()
         try:
-            workouts = db.query(Workout).all()
-            return [w.name for w in workouts]
+            query = db.query(Workout)
+            if username:
+                user = self.ensure_user(db, username)
+                # Show workouts created by this user OR by Admins (Global)
+                # Or workouts with no creator (legacy/global)
+                
+                # Subquery to find admins? Or just join?
+                # Simpler: Filter where created_by_user_id is None (System) 
+                # OR created_by_user_id == user.id 
+                # OR created_by_user_id IN (select id from users where is_admin=1)
+                
+                admin_ids = db.query(User.id).filter(User.is_admin == 1).all()
+                admin_ids = [a[0] for a in admin_ids]
+                
+                query = query.filter(
+                    (Workout.created_by_user_id == None) | 
+                    (Workout.created_by_user_id == user.id) |
+                    (Workout.created_by_user_id.in_(admin_ids))
+                )
+            
+            workouts = query.all()
+            # Return dict with metadata
+            return [
+                {
+                    "name": w.name, 
+                    "is_global": (w.created_by_user_id is None or w.created_by_user_id in admin_ids),
+                    "created_by": w.created_by_user_id
+                } 
+                for w in workouts
+            ]
         finally:
             db.close()
 
@@ -196,14 +232,19 @@ class DataManager:
         finally:
             db.close()
 
-    def create_workout(self, name: str):
+    def create_workout(self, name: str, username: str = None):
         db = self.get_db()
         try:
             existing = db.query(Workout).filter(Workout.name == name).first()
             if existing:
                 return False, f"Workout '{name}' already exists"
-                
-            workout = Workout(name=name)
+            
+            creator_id = None
+            if username:
+                user = self.ensure_user(db, username)
+                creator_id = user.id
+
+            workout = Workout(name=name, created_by_user_id=creator_id)
             db.add(workout)
             db.commit()
             return True, f"Workout '{name}' created"

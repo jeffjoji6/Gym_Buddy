@@ -52,8 +52,8 @@ async def get_users():
     return UserListResponse(users=users)
 
 @app.get("/api/workouts", response_model=WorkoutListResponse)
-async def get_workouts():
-    workouts = data_manager.get_workouts()
+async def get_workouts(user: str = None):
+    workouts = data_manager.get_workouts(user)
     return WorkoutListResponse(workouts=workouts)
 
 @app.delete("/api/user/{username}", response_model=GenericResponse)
@@ -123,7 +123,8 @@ async def parse_command(request: ParseRequest):
 
 @app.post("/api/workout", response_model=GenericResponse)
 async def create_workout(request: CreateWorkoutRequest):
-    success, message = data_manager.create_workout(request.name)
+    # Pass the user (username) to the create_workout function
+    success, message = data_manager.create_workout(request.name, request.user)
     return GenericResponse(success=success, message=message)
 
 @app.post("/api/exercise", response_model=GenericResponse)

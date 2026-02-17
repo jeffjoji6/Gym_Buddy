@@ -8,17 +8,21 @@ class User(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String, unique=True, index=True)
+    is_admin = Column(Integer, default=0) # 0 = False, 1 = True (using Integer for SQLite/Postgres compat)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     sets = relationship("SetLog", back_populates="user")
     sessions = relationship("WorkoutSession", back_populates="user")
+    created_workouts = relationship("Workout", back_populates="creator")
 
 class Workout(Base):
     __tablename__ = "workouts"
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, unique=True, index=True) # Push, Pull, Legs
+    created_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True) # Null = System/Default (or assume Admin)
 
+    creator = relationship("User", back_populates="created_workouts")
     exercises = relationship("Exercise", back_populates="workout")
     sessions = relationship("WorkoutSession", back_populates="workout")
 

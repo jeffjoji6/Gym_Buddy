@@ -5,7 +5,7 @@ import { useUser } from '../context/UserContext';
 
 export default function Home() {
     const navigate = useNavigate();
-    const { activeWeek, setActiveWeek } = useUser();
+    const { user: currentUser, activeWeek, setActiveWeek } = useUser();
 
     const [showCreate, setShowCreate] = useState(false);
     const [newWorkoutName, setNewWorkoutName] = useState('');
@@ -19,8 +19,11 @@ export default function Home() {
 
     React.useEffect(() => {
         const fetchWorkouts = async () => {
+            if (!currentUser) return; // Wait for user context
+
             const { getWorkouts } = await import('../services/api');
-            const data = await getWorkouts();
+            const data = await getWorkouts(currentUser);
+
             // Merge with default icons/colors
             const defaults = {
                 'Push': { icon: '💪', color: '#ff6b6b' },
@@ -28,37 +31,36 @@ export default function Home() {
                 'Legs': { icon: '🦵', color: '#ffe66d' }
             };
 
-            const mapped = data.workouts.map(name => ({
-                type: name,
-                icon: defaults[name]?.icon || '🏋️',
-                color: defaults[name]?.color || '#a0a0a0'
+            const mapped = data.workouts.map(w => ({
+                type: w.name,
+                is_global: w.is_global,
+                icon: defaults[w.name]?.icon || '🏋️',
+                color: defaults[w.name]?.color || '#a0a0a0'
             }));
             setWorkouts(mapped);
         };
         fetchWorkouts();
-    }, []);
-
-    // In a real app we'd fetch workouts from backend, but for now we append to local list 
-    // or we could fetch unique workout types from backend if we had an endpoint for that.
-    // For now, let's just allow navigating to new ones.
+    }, [currentUser]);
 
     const handleCreate = async (e) => {
         e.preventDefault();
         if (newWorkoutName.trim()) {
             const { createWorkout, getWorkouts } = await import('../services/api');
-            await createWorkout(newWorkoutName.trim());
+            // Pass current user to identify who created it
+            await createWorkout(newWorkoutName.trim(), currentUser);
 
             // Refresh list
-            const data = await getWorkouts();
+            const data = await getWorkouts(currentUser);
             const defaults = {
                 'Push': { icon: '💪', color: '#ff6b6b' },
                 'Pull': { icon: '🧗', color: '#4ecdc4' },
                 'Legs': { icon: '🦵', color: '#ffe66d' }
             };
-            const mapped = data.workouts.map(name => ({
-                type: name,
-                icon: defaults[name]?.icon || '🏋️',
-                color: defaults[name]?.color || '#a0a0a0'
+            const mapped = data.workouts.map(w => ({
+                type: w.name,
+                is_global: w.is_global,
+                icon: defaults[w.name]?.icon || '🏋️',
+                color: defaults[w.name]?.color || '#a0a0a0'
             }));
             setWorkouts(mapped);
             setShowCreate(false);

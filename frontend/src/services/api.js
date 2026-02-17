@@ -21,42 +21,17 @@ export const getWorkout = async (type, week, user, split = "A") => {
   return response.data;
 };
 
-export const getWorkouts = async () => {
-  const response = await api.get('/workouts');
+export const getWorkouts = async (user) => {
+  const response = await api.get('/workouts', { params: { user } });
+  // If we start filtering by user on backend for real, we'd pass user here:
+  // const response = await api.get(`/workouts?username=${user}`);
   return response.data;
 };
 
-export const logSet = async (payload) => {
-  const response = await api.post('/log', payload);
-  return response.data;
-};
+// ...
 
-export const updateSet = async (payload) => {
-  const response = await api.put('/set/update', payload);
-  return response.data;
-};
-
-export const deleteSet = async (payload) => {
-  const response = await api.delete('/set/delete', { data: payload });
-  return response.data;
-};
-
-export const parseCommand = async (text, workoutType, user) => {
-  const response = await api.post('/parse', { text, workout_type: workoutType, user });
-  return response.data;
-};
-
-export const healthCheck = async () => {
-    try {
-        const response = await api.get('/health');
-        return response.data;
-    } catch (e) {
-        return { status: "error" };
-    }
-};
-
-export const createWorkout = async (name) => {
-    const response = await api.post('/workout', { name });
+export const createWorkout = async (name, user = null) => {
+    const response = await api.post('/workout', { name, user });
     return response.data;
 };
 

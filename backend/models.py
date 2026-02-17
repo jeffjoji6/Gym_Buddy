@@ -58,6 +58,7 @@ class UserListResponse(BaseModel):
 
 class CreateWorkoutRequest(BaseModel):
     name: str
+    user: str | None = None
 
 class AddExerciseRequest(BaseModel):
     workout_type: str
@@ -103,5 +104,10 @@ class DashboardStatsResponse(BaseModel):
     data: dict | None = None # { "workouts_this_week": int, "prs_this_week": int, "recent_activity": [] }
     message: str | None = None
 
+class WorkoutItem(BaseModel):
+    name: str
+    is_global: bool
+    created_by: int | None
+
 class WorkoutListResponse(BaseModel):
-    workouts: List[str]
+    workouts: List[WorkoutItem]
