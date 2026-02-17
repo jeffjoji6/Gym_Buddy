@@ -174,6 +174,23 @@ export default function WorkoutView() {
     const { user } = useUser();
     const navigate = useNavigate();
 
+    const [exercises, setExercises] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [listening, setListening] = useState(false);
+    const [voiceStatus, setVoiceStatus] = useState('');
+    const [trigger, setTrigger] = useState(0);
+    const [isEditing, setIsEditing] = useState(false);
+
+    // Session State
+    const [sessionId, setSessionId] = useState(null);
+    const [summaryData, setSummaryData] = useState(null);
+    const [showSummary, setShowSummary] = useState(false);
+    const [finishNotes, setFinishNotes] = useState('');
+    const [finishing, setFinishing] = useState(false);
+
+    const [showAddExercise, setShowAddExercise] = useState(false);
+    const [newExerciseName, setNewExerciseName] = useState('');
+
     // Timer State
     const [startTime, setStartTime] = useState(null);
     const [duration, setDuration] = useState(0);
