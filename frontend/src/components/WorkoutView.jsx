@@ -170,167 +170,73 @@ export default function WorkoutView() {
     const { type } = useParams();
     const [searchParams, setSearchParams] = useSearchParams();
     const week = parseInt(searchParams.get('week') || '1');
-    const split = searchParams.get('split') || 'A';
-    const { user } = useUser();
-    const navigate = useNavigate();
-
-    const [exercises, setExercises] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const [listening, setListening] = useState(false);
-    const [voiceStatus, setVoiceStatus] = useState('');
-    const [trigger, setTrigger] = useState(0);
-    const [isEditing, setIsEditing] = useState(false);
-
-    // Session State
-    const [sessionId, setSessionId] = useState(null);
-    const [summaryData, setSummaryData] = useState(null);
-    const [showSummary, setShowSummary] = useState(false);
-    const [finishNotes, setFinishNotes] = useState('');
-    const [finishing, setFinishing] = useState(false);
-
-    const [showAddExercise, setShowAddExercise] = useState(false);
-    const [newExerciseName, setNewExerciseName] = useState('');
+    // Timer State
+    const [startTime, setStartTime] = useState(null);
+    const [duration, setDuration] = useState(0);
 
     useEffect(() => {
-        const load = async () => {
-            if (!user) return;
-            // Only show full loading spinner on initial mount or type change, not on minor updates like logging a set
-            if (exercises.length === 0) setLoading(true);
-            try {
-                const data = await getWorkout(type, week, user, split);
-                setExercises(data.exercises);
-            } catch (e) {
-                console.error(e);
-            }
-            setLoading(false);
-        };
-        load();
-    }, [type, week, split, trigger, user]);
-
-    // Start Session on Mount
-    useEffect(() => {
-        if (user && type && !sessionId) {
-            startSession(user, type, split).then(res => {
-                if (res.success) {
-                    setSessionId(res.session_id);
-                }
-            });
+        // Load session start time from local storage if available
+        const storedStart = localStorage.getItem(`gym_buddy_session_${user}_${type}_${split}`);
+        if (storedStart) {
+            setStartTime(parseInt(storedStart));
+            setSessionId(localStorage.getItem(`gym_buddy_session_id_${user}_${type}_${split}`));
         }
     }, [user, type, split]);
 
-    // Scroll to active week
     useEffect(() => {
-        const el = document.getElementById(`week-${week}`);
-        if (el) {
-            el.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+        let interval;
+        if (startTime && !showSummary) {
+            interval = setInterval(() => {
+                const now = Date.now();
+                setDuration(Math.floor((now - startTime) / 1000));
+            }, 1000);
+        } else {
+            setDuration(0);
         }
-    }, [week]);
+        return () => clearInterval(interval);
+    }, [startTime, showSummary]);
 
-    const handleLogSet = async (exerciseName, weight, reps) => {
-        await logSet({
-            workout_type: type,
-            exercise_name: exerciseName,
-            weight: parseFloat(weight),
-            reps: parseInt(reps),
-            week: week,
-            user: user
-        });
-        setTrigger(t => t + 1);
-    };
-
-    const handleUpdateSet = async (id, weight, reps) => {
-        await updateSet({
-            set_id: id,
-            weight: weight,
-            reps: reps,
-            user: user
-        });
-        setTrigger(t => t + 1);
-    };
-
-    const handleDeleteSet = async (id) => {
-        await deleteSet({
-            set_id: id,
-            user: user
-        });
-        setTrigger(t => t + 1);
-    };
-
-    const handleAddExercise = async (e) => {
-        e.preventDefault();
-        if (newExerciseName.trim()) {
-            const { addExercise } = await import('../services/api');
-            await addExercise(type, newExerciseName.trim(), user, split);
-            setTrigger(t => t + 1);
-            setShowAddExercise(false);
-            setNewExerciseName('');
+    const formatTime = (seconds) => {
+        const hrs = Math.floor(seconds / 3600);
+        const mins = Math.floor((seconds % 3600) / 60);
+        const secs = seconds % 60;
+        if (hrs > 0) {
+            return `${hrs}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
         }
+        return `${mins}:${secs.toString().padStart(2, '0')}`;
     };
 
-    const speak = (text) => {
-        const utterance = new SpeechSynthesisUtterance(text);
-        window.speechSynthesis.speak(utterance);
-    };
+    const handleStartWorkout = async () => {
+        const now = Date.now();
+        setStartTime(now);
+        localStorage.setItem(`gym_buddy_session_${user}_${type}_${split}`, now.toString());
 
-    const startListening = () => {
-        if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-            alert("Browser does not support speech recognition.");
-            return;
+        const res = await startSession(user, type, split);
+        if (res.success) {
+            setSessionId(res.session_id);
+            localStorage.setItem(`gym_buddy_session_id_${user}_${type}_${split}`, res.session_id);
         }
-
-        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        const recognition = new SpeechRecognition();
-        recognition.lang = 'en-US';
-        recognition.interimResults = false;
-        recognition.maxAlternatives = 1;
-
-        recognition.onstart = () => {
-            setListening(true);
-            setVoiceStatus('Listening...');
-        };
-
-        recognition.onend = () => {
-            setListening(false);
-            setVoiceStatus('');
-        };
-
-        recognition.onresult = async (event) => {
-            const transcript = event.results[0][0].transcript;
-            setVoiceStatus(`Heard: "${transcript}"`);
-
-            try {
-                const result = await parseCommand(transcript, type, user);
-                if (result.success && result.data) {
-                    const { exercise, weight, reps } = result.data;
-                    speak(`Logging ${weight} kilos for ${reps} reps on ${exercise}`);
-                    await handleLogSet(exercise, weight, reps);
-                } else {
-                    speak("Sorry, I didn't catch that.");
-                    setVoiceStatus(`Error: ${result.message}`);
-                }
-            } catch (e) {
-                console.error(e);
-                speak("Something went wrong.");
-            }
-        };
-
-        recognition.start();
-    };
-
-    const handleDeleteExercise = async (exerciseName) => {
-        const { deleteExercise } = await import('../services/api');
-        await deleteExercise(type, exerciseName, user);
-        setTrigger(t => t + 1);
     };
 
     const handleFinishWorkout = async () => {
-        if (!sessionId) return;
+        if (!sessionId) {
+            // Fallback if session ID lost but local start time exists (rare)
+            setStartTime(null);
+            localStorage.removeItem(`gym_buddy_session_${user}_${type}_${split}`);
+            localStorage.removeItem(`gym_buddy_session_id_${user}_${type}_${split}`);
+            return;
+        }
         setFinishing(true);
         try {
             const res = await endSession(sessionId, user, finishNotes);
             if (res.success) {
                 setSummaryData(res);
                 setShowSummary(true);
+                // Clear session
+                setStartTime(null);
+                setSessionId(null);
+                localStorage.removeItem(`gym_buddy_session_${user}_${type}_${split}`);
+                localStorage.removeItem(`gym_buddy_session_id_${user}_${type}_${split}`);
             }
         } catch (e) {
             console.error(e);
@@ -357,20 +263,38 @@ export default function WorkoutView() {
                             Split {split === 'A' ? '1' : '2'}
                         </div>
                     </div>
-                    <button
-                        onClick={() => setIsEditing(!isEditing)}
-                        style={{
-                            background: 'transparent',
-                            border: 'none',
-                            color: 'var(--primary-color)',
-                            fontWeight: 'bold',
-                            fontSize: '1rem',
-                            cursor: 'pointer',
-                            minWidth: '40px'
-                        }}
-                    >
-                        {isEditing ? 'Done' : 'Edit'}
-                    </button>
+
+                    {/* Timer / Start / Finish Button */}
+                    {!startTime ? (
+                        <button
+                            className="button-primary"
+                            onClick={handleStartWorkout}
+                            style={{
+                                padding: '8px 16px',
+                                fontSize: '0.9rem',
+                                background: 'var(--success-color)',
+                                boxShadow: '0 2px 8px rgba(0,0,0,0.2)'
+                            }}
+                        >
+                            Start
+                        </button>
+                    ) : (
+                        <button
+                            className="button-danger"
+                            onClick={handleFinishWorkout}
+                            disabled={finishing}
+                            style={{
+                                padding: '8px 16px',
+                                fontSize: '0.9rem',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                boxShadow: '0 2px 8px rgba(0,0,0,0.2)'
+                            }}
+                        >
+                            {formatTime(duration)} <Check size={16} />
+                        </button>
+                    )}
                 </div>
 
                 {/* Horizontal Week Selector */}
@@ -457,6 +381,22 @@ export default function WorkoutView() {
                     >
                         + Add Exercise
                     </button>
+
+                    {/* Edit Mode Toggle (Bottom) */}
+                    <div style={{ marginTop: '2rem', textAlign: 'center' }}>
+                        <button
+                            onClick={() => setIsEditing(!isEditing)}
+                            style={{
+                                background: 'transparent',
+                                border: 'none',
+                                color: 'var(--text-dim)',
+                                cursor: 'pointer',
+                                textDecoration: 'underline'
+                            }}
+                        >
+                            {isEditing ? 'Done Editing' : 'Edit Exercises'}
+                        </button>
+                    </div>
                 </div>
             )}
 
@@ -505,22 +445,6 @@ export default function WorkoutView() {
                     </div>
                 </div>
             )
-            }
-
-            {/* Finish Workout Button */}
-            {
-                !loading && exercises.length > 0 && (
-                    <div style={{ padding: '0 1rem 120px 1rem' }}>
-                        <button
-                            className="button-primary"
-                            style={{ width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', background: 'var(--success-color)' }}
-                            onClick={handleFinishWorkout}
-                            disabled={finishing}
-                        >
-                            {finishing ? 'Finishing...' : <><Check /> Finish Workout</>}
-                        </button>
-                    </div>
-                )
             }
 
             {/* Summary Modal */}
