@@ -92,10 +92,11 @@ export default function Home() {
                 'Pull': { icon: '🧗', color: '#4ecdc4' },
                 'Legs': { icon: '🦵', color: '#ffe66d' }
             };
-            const mapped = data.workouts.map(name => ({
-                type: name,
-                icon: defaults[name]?.icon || '🏋️',
-                color: defaults[name]?.color || '#a0a0a0'
+            const mapped = data.workouts.map(w => ({
+                type: w.name,
+                is_global: w.is_global,
+                icon: defaults[w.name]?.icon || '🏋️',
+                color: defaults[w.name]?.color || '#a0a0a0'
             }));
             setWorkouts(mapped);
         }
