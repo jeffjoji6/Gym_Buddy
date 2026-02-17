@@ -242,6 +242,16 @@ export default function WorkoutView() {
     }, [startTime, showSummary]);
 
     const handleLogSet = async (exerciseName, weight, reps) => {
+        // Remind user to start workout if they haven't
+        if (!startTime) {
+            const shouldStart = window.confirm("You haven't started your workout yet! Would you like to start now?");
+            if (shouldStart) {
+                await handleStartWorkout();
+            } else {
+                return; // Don't log the set if user doesn't want to start
+            }
+        }
+
         await logSet({
             workout_type: type,
             exercise_name: exerciseName,
