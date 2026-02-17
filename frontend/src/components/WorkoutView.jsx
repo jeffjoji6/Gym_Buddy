@@ -170,6 +170,10 @@ export default function WorkoutView() {
     const { type } = useParams();
     const [searchParams, setSearchParams] = useSearchParams();
     const week = parseInt(searchParams.get('week') || '1');
+    const split = searchParams.get('split') || 'A';
+    const { user } = useUser();
+    const navigate = useNavigate();
+
     // Timer State
     const [startTime, setStartTime] = useState(null);
     const [duration, setDuration] = useState(0);
