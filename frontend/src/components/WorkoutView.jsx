@@ -205,6 +205,30 @@ export default function WorkoutView() {
     }, [user, type, split]);
 
     useEffect(() => {
+        const load = async () => {
+            if (!user) return;
+            // Only show full loading spinner on initial mount or type change, not on minor updates like logging a set
+            if (exercises.length === 0) setLoading(true);
+            try {
+                const data = await getWorkout(type, week, user, split);
+                setExercises(data.exercises);
+            } catch (e) {
+                console.error(e);
+            }
+            setLoading(false);
+        };
+        load();
+    }, [type, week, split, trigger, user]);
+
+    // Scroll to active week
+    useEffect(() => {
+        const el = document.getElementById(`week-${week}`);
+        if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+        }
+    }, [week]);
+
+    useEffect(() => {
         let interval;
         if (startTime && !showSummary) {
             interval = setInterval(() => {
@@ -216,6 +240,103 @@ export default function WorkoutView() {
         }
         return () => clearInterval(interval);
     }, [startTime, showSummary]);
+
+    const handleLogSet = async (exerciseName, weight, reps) => {
+        await logSet({
+            workout_type: type,
+            exercise_name: exerciseName,
+            weight: parseFloat(weight),
+            reps: parseInt(reps),
+            week: week,
+            user: user
+        });
+        setTrigger(t => t + 1);
+    };
+
+    const handleUpdateSet = async (id, weight, reps) => {
+        await updateSet({
+            set_id: id,
+            weight: weight,
+            reps: reps,
+            user: user
+        });
+        setTrigger(t => t + 1);
+    };
+
+    const handleDeleteSet = async (id) => {
+        await deleteSet({
+            set_id: id,
+            user: user
+        });
+        setTrigger(t => t + 1);
+    };
+
+    const handleAddExercise = async (e) => {
+        e.preventDefault();
+        if (newExerciseName.trim()) {
+            const { addExercise } = await import('../services/api');
+            await addExercise(type, newExerciseName.trim(), user, split);
+            setTrigger(t => t + 1);
+            setShowAddExercise(false);
+            setNewExerciseName('');
+        }
+    };
+
+    const speak = (text) => {
+        const utterance = new SpeechSynthesisUtterance(text);
+        window.speechSynthesis.speak(utterance);
+    };
+
+    const startListening = () => {
+        if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+            alert("Browser does not support speech recognition.");
+            return;
+        }
+
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        const recognition = new SpeechRecognition();
+        recognition.lang = 'en-US';
+        recognition.interimResults = false;
+        recognition.maxAlternatives = 1;
+
+        recognition.onstart = () => {
+            setListening(true);
+            setVoiceStatus('Listening...');
+        };
+
+        recognition.onend = () => {
+            setListening(false);
+            setVoiceStatus('');
+        };
+
+        recognition.onresult = async (event) => {
+            const transcript = event.results[0][0].transcript;
+            setVoiceStatus(`Heard: "${transcript}"`);
+
+            try {
+                const result = await parseCommand(transcript, type, user);
+                if (result.success && result.data) {
+                    const { exercise, weight, reps } = result.data;
+                    speak(`Logging ${weight} kilos for ${reps} reps on ${exercise}`);
+                    await handleLogSet(exercise, weight, reps);
+                } else {
+                    speak("Sorry, I didn't catch that.");
+                    setVoiceStatus(`Error: ${result.message}`);
+                }
+            } catch (e) {
+                console.error(e);
+                speak("Something went wrong.");
+            }
+        };
+
+        recognition.start();
+    };
+
+    const handleDeleteExercise = async (exerciseName) => {
+        const { deleteExercise } = await import('../services/api');
+        await deleteExercise(type, exerciseName, user);
+        setTrigger(t => t + 1);
+    };
 
     const formatTime = (seconds) => {
         const hrs = Math.floor(seconds / 3600);
