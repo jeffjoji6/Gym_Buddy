@@ -28,7 +28,6 @@ export default function Home() {
             const defaults = {
                 'Push': { icon: '💪', color: '#ff6b6b' },
                 'Pull': { icon: '🧗', color: '#4ecdc4' },
-                'Pull 🧗': { icon: '🧗', color: '#4ecdc4' },
                 'Legs': { icon: '🦵', color: '#ffe66d' }
             };
 
@@ -55,7 +54,6 @@ export default function Home() {
             const defaults = {
                 'Push': { icon: '💪', color: '#ff6b6b' },
                 'Pull': { icon: '🧗', color: '#4ecdc4' },
-                'Pull 🧗': { icon: '🧗', color: '#4ecdc4' },
                 'Legs': { icon: '🦵', color: '#ffe66d' }
             };
             const mapped = data.workouts.map(w => ({
@@ -92,7 +90,6 @@ export default function Home() {
             const defaults = {
                 'Push': { icon: '💪', color: '#ff6b6b' },
                 'Pull': { icon: '🧗', color: '#4ecdc4' },
-                'Pull 🧗': { icon: '🧗', color: '#4ecdc4' },
                 'Legs': { icon: '🦵', color: '#ffe66d' }
             };
             const mapped = data.workouts.map(w => ({

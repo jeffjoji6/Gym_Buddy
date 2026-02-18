@@ -28,78 +28,75 @@ async def startup_event():
     # Run column migrations for existing tables
     _run_migrations()
     
-    # Merge custom Pull workouts into global Pull 🧗
-    _merge_pull_workouts()
+    # Fix production data (Merge duplicates, ensure defaults)
+    _fix_production_data()
 
-def _merge_pull_workouts():
-    """Merge specific custom workouts into the global Pull workout and rename it."""
+def _fix_production_data():
+    """Merge specific custom workouts into global defaults and ensure defaults exist."""
     try:
         with engine.connect() as conn:
-            # 1. Ensure global "Pull" or "Pull 🧗" exists
-            # Try to find existing "Pull 🧗" first
+            # --- 1. Fix PULL Workout (Revert emoji rename if exists) ---
+            
+            # Check if "Pull" exists
+            result = conn.execute(text("SELECT id FROM workouts WHERE name = 'Pull'"))
+            pull_id = result.scalar()
+            
+            # Check if "Pull 🧗" exists (from previous migration)
             result = conn.execute(text("SELECT id FROM workouts WHERE name = 'Pull 🧗'"))
-            target_id = result.scalar()
+            emoji_pull_id = result.scalar()
             
-            if not target_id:
-                # Try finding "Pull"
-                result = conn.execute(text("SELECT id FROM workouts WHERE name = 'Pull'"))
-                pull_id = result.scalar()
-                
-                if pull_id:
-                    # Rename "Pull" to "Pull 🧗"
-                    conn.execute(text("UPDATE workouts SET name = 'Pull 🧗' WHERE id = :id"), {"id": pull_id})
-                    target_id = pull_id
-                    print("✓ Renamed 'Pull' to 'Pull 🧗'")
-                else:
-                    # Create "Pull 🧗" if neither exists
-                    # Check if 'admin' user exists for creator_id
-                    admin_res = conn.execute(text("SELECT id FROM users WHERE is_admin=1"))
-                    admin_id = admin_res.scalar()
-                    
-                    conn.execute(text("INSERT INTO workouts (name, created_by_user_id) VALUES ('Pull 🧗', :uid)"), {"uid": admin_id})
-                    # Get the new ID
-                    result = conn.execute(text("SELECT id FROM workouts WHERE name = 'Pull 🧗'"))
-                    target_id = result.scalar()
-                    print("✓ Created 'Pull 🧗' workout")
+            target_pull_id = None
             
-            conn.commit()
-            
-            # 2. Find duplicates to merge
-            # Candidates: "Jeff Pull Workout", "Sarath pulll workout"
-            # We use ILIKE to match variations
-            patterns = [
-                'Jeff Pull Workout',
-                'Sarath pulll workout', 
-                'Sarath Pull Workout'
-            ]
-            
+            if pull_id and emoji_pull_id:
+                # Both exist? Merge emoji one into normal one
+                print("Merging 'Pull 🧗' into 'Pull'...")
+                conn.execute(text("UPDATE exercises SET workout_id = :tid WHERE workout_id = :did"), {"tid": pull_id, "did": emoji_pull_id})
+                conn.execute(text("UPDATE workout_sessions SET workout_id = :tid WHERE workout_id = :did"), {"tid": pull_id, "did": emoji_pull_id})
+                conn.execute(text("DELETE FROM workouts WHERE id = :did"), {"did": emoji_pull_id})
+                target_pull_id = pull_id
+            elif emoji_pull_id and not pull_id:
+                # Only emoji exists -> Rename it back to "Pull"
+                conn.execute(text("UPDATE workouts SET name = 'Pull' WHERE id = :id"), {"id": emoji_pull_id})
+                target_pull_id = emoji_pull_id
+                print("✓ Renamed 'Pull 🧗' back to 'Pull'")
+            elif pull_id:
+                target_pull_id = pull_id
+            else:
+                # Neither exists -> Create "Pull"
+                admin_res = conn.execute(text("SELECT id FROM users WHERE is_admin=1"))
+                admin_id = admin_res.scalar() or 1 # Fallback to 1
+                conn.execute(text("INSERT INTO workouts (name, created_by_user_id) VALUES ('Pull', :uid)"), {"uid": admin_id})
+                target_pull_id = conn.execute(text("SELECT id FROM workouts WHERE name = 'Pull'")).scalar()
+                print("✓ Created 'Pull' workout")
+
+            # --- 2. Merge Custom Pull Workouts ---
+            patterns = ['Jeff Pull Workout', 'Sarath pulll workout', 'Sarath Pull Workout']
             for pattern in patterns:
-                # Find IDs of workouts matching pattern
                 rows = conn.execute(text("SELECT id, name FROM workouts WHERE name ILIKE :p AND id != :tid"), 
-                                  {"p": pattern, "tid": target_id}).fetchall()
-                
+                                  {"p": pattern, "tid": target_pull_id}).fetchall()
                 for row in rows:
                     dup_id = row[0]
                     dup_name = row[1]
-                    print(f"Merging '{dup_name}' (ID {dup_id}) into 'Pull 🧗' (ID {target_id})...")
-                    
-                    # Reassign Exercises
-                    conn.execute(text("UPDATE exercises SET workout_id = :tid WHERE workout_id = :did"),
-                               {"tid": target_id, "did": dup_id})
-                               
-                    # Reassign Sessions
-                    conn.execute(text("UPDATE workout_sessions SET workout_id = :tid WHERE workout_id = :did"),
-                               {"tid": target_id, "did": dup_id})
-                    
-                    # Delete the empty workout
+                    print(f"Merging '{dup_name}' into 'Pull'...")
+                    conn.execute(text("UPDATE exercises SET workout_id = :tid WHERE workout_id = :did"), {"tid": target_pull_id, "did": dup_id})
+                    conn.execute(text("UPDATE workout_sessions SET workout_id = :tid WHERE workout_id = :did"), {"tid": target_pull_id, "did": dup_id})
                     conn.execute(text("DELETE FROM workouts WHERE id = :did"), {"did": dup_id})
-                    print(f"✓ Merged and deleted '{dup_name}'")
-                    
+
+            # --- 3. Ensure LEGS Workout Exists ---
+            result = conn.execute(text("SELECT id FROM workouts WHERE name = 'Legs'"))
+            legs_id = result.scalar()
+            
+            if not legs_id:
+                admin_res = conn.execute(text("SELECT id FROM users WHERE is_admin=1"))
+                admin_id = admin_res.scalar() or 1
+                conn.execute(text("INSERT INTO workouts (name, created_by_user_id) VALUES ('Legs', :uid)"), {"uid": admin_id})
+                print("✓ Created 'Legs' workout")
+            
             conn.commit()
-            print("✓ Pull workout merge complete")
+            print("✓ Production data fix complete")
             
     except Exception as e:
-        print(f"Merge warning (non-fatal): {e}")
+        print(f"Data fix warning (non-fatal): {e}")
 
 def _run_migrations():
     """Add missing columns to existing tables (idempotent)."""
