@@ -115,7 +115,7 @@ class DataManager:
             
             exercises_db = db.query(Exercise).filter(
                 Exercise.workout_id == workout.id,
-                Exercise.split == split
+                (Exercise.split == split) | (Exercise.split == None)
             ).all()
             
             result = []
