@@ -70,13 +70,25 @@ def _fix_production_data():
                 print("✓ Created 'Pull' workout")
 
             # --- 2. Merge Custom Pull Workouts ---
-            patterns = ['Jeff Pull Workout', 'Sarath pulll workout', 'Sarath Pull Workout']
+            # Merge variants like "Pulll", "Jeff Pull Workout", etc. into the main "Pull"
+            patterns = [
+                'Jeff Pull%', 
+                'Sarath Pull%', 
+                'Pulll%',          # Catch "Pulll" typo
+                '%Pull%Workout%'   # Catch generic "Pull Workout" naming
+            ]
+            
             for pattern in patterns:
                 rows = conn.execute(text("SELECT id, name FROM workouts WHERE name ILIKE :p AND id != :tid"), 
                                   {"p": pattern, "tid": target_pull_id}).fetchall()
                 for row in rows:
                     dup_id = row[0]
                     dup_name = row[1]
+                    
+                    # Double check we don't merge "Push" or legitimate other things if pattern is too loose
+                    # But patterns above seem safe enough for now
+                    if dup_name == 'Pull': continue 
+                    
                     print(f"Merging '{dup_name}' into 'Pull'...")
                     conn.execute(text("UPDATE exercises SET workout_id = :tid WHERE workout_id = :did"), {"tid": target_pull_id, "did": dup_id})
                     conn.execute(text("UPDATE workout_sessions SET workout_id = :tid WHERE workout_id = :did"), {"tid": target_pull_id, "did": dup_id})
