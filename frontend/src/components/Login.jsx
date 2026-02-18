@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useUser } from '../context/UserContext';
-import { Dumbbell, Plus, User, Trash2, X, Settings } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Dumbbell, Plus, User, Trash2, X, Settings, ChevronDown, Shield, Pencil } from 'lucide-react';
 import { getUsers, deleteUser } from '../services/api';
 
 export default function Login() {
@@ -11,7 +12,21 @@ export default function Login() {
     const [showAdd, setShowAdd] = useState(false);
     const [newName, setNewName] = useState('');
 
+    const navigate = useNavigate();
     const [manageMode, setManageMode] = useState(false);
+    const [showManageMenu, setShowManageMenu] = useState(false);
+    const manageMenuRef = useRef(null);
+
+    // Close dropdown when clicking outside
+    useEffect(() => {
+        const handleClickOutside = (e) => {
+            if (manageMenuRef.current && !manageMenuRef.current.contains(e.target)) {
+                setShowManageMenu(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
 
     const fetchUsers = async () => {
         setLoading(true);
@@ -76,18 +91,67 @@ export default function Login() {
             {!showAdd ? (
                 <div style={{ width: '100%', maxWidth: '500px' }} className="animate-slide-up">
                     <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '1rem' }}>
-                        <button
-                            onClick={() => setManageMode(!manageMode)}
-                            style={{
-                                background: manageMode ? 'var(--primary-color)' : 'transparent',
-                                color: manageMode ? '#000' : 'var(--text-dim)',
-                                padding: '8px 12px',
-                                display: 'flex', alignItems: 'center', gap: '8px',
-                                fontSize: '0.9rem'
-                            }}
-                        >
-                            <Settings size={16} /> {manageMode ? 'Done' : 'Manage'}
-                        </button>
+                        {/* Manage Dropdown */}
+                        <div ref={manageMenuRef} style={{ position: 'relative' }}>
+                            <button
+                                onClick={() => {
+                                    if (manageMode) {
+                                        setManageMode(false);
+                                    } else {
+                                        setShowManageMenu(!showManageMenu);
+                                    }
+                                }}
+                                style={{
+                                    background: manageMode ? 'var(--primary-color)' : 'transparent',
+                                    color: manageMode ? '#000' : 'var(--text-dim)',
+                                    padding: '8px 12px',
+                                    display: 'flex', alignItems: 'center', gap: '8px',
+                                    fontSize: '0.9rem'
+                                }}
+                            >
+                                <Settings size={16} />
+                                {manageMode ? 'Done' : 'Manage'}
+                                {!manageMode && <ChevronDown size={14} />}
+                            </button>
+
+                            {showManageMenu && !manageMode && (
+                                <div style={{
+                                    position: 'absolute',
+                                    right: 0,
+                                    top: '110%',
+                                    background: 'var(--surface-color)',
+                                    border: '1px solid var(--border-color)',
+                                    borderRadius: '12px',
+                                    overflow: 'hidden',
+                                    zIndex: 100,
+                                    minWidth: '150px',
+                                    boxShadow: '0 8px 24px rgba(0,0,0,0.4)'
+                                }}>
+                                    <button
+                                        onClick={() => { navigate('/admin'); setShowManageMenu(false); }}
+                                        style={{
+                                            width: '100%', padding: '12px 16px',
+                                            display: 'flex', alignItems: 'center', gap: '10px',
+                                            background: 'transparent', color: 'var(--text-color)',
+                                            fontSize: '0.95rem', borderBottom: '1px solid var(--border-color)'
+                                        }}
+                                    >
+                                        <Shield size={16} color="var(--primary-color)" /> Admin
+                                    </button>
+                                    <button
+                                        onClick={() => { setManageMode(true); setShowManageMenu(false); }}
+                                        style={{
+                                            width: '100%', padding: '12px 16px',
+                                            display: 'flex', alignItems: 'center', gap: '10px',
+                                            background: 'transparent', color: 'var(--text-color)',
+                                            fontSize: '0.95rem'
+                                        }}
+                                    >
+                                        <Pencil size={16} color="var(--text-dim)" /> Edit
+                                    </button>
+                                </div>
+                            )}
+                        </div>
                     </div>
 
                     <div className="user-grid">
