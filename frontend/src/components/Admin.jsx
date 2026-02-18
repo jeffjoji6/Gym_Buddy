@@ -16,7 +16,9 @@ export default function Admin() {
 
     const loadWorkouts = async () => {
         const data = await getWorkouts();
-        setWorkouts(data.workouts || []);
+        // API returns objects {name, is_global, created_by}, extract names
+        const names = (data.workouts || []).map(w => typeof w === 'string' ? w : w.name);
+        setWorkouts(names);
     };
 
     const handleCreateWorkout = async (e) => {
