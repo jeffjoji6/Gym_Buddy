@@ -55,6 +55,10 @@ class DataManager:
                 admin_ids = db.query(User.id).filter(User.is_admin == 1).all()
                 admin_ids = [a[0] for a in admin_ids]
                 
+                # Fallback: if no admins are flagged, treat user ID 1 as the system admin
+                if not admin_ids:
+                    admin_ids = [1]
+                
                 query = query.filter(
                     (Workout.created_by_user_id == None) | 
                     (Workout.created_by_user_id == user.id) |

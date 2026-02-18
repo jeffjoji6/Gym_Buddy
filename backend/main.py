@@ -110,6 +110,13 @@ def _fix_production_data():
     except Exception as e:
         print(f"Data fix warning (non-fatal): {e}")
 
+@app.get("/api/run-migrations")
+async def trigger_migrations():
+    """Manually trigger migrations and data fixes. Call this after deployment."""
+    _run_migrations()
+    _fix_production_data()
+    return {"status": "ok", "message": "Migrations and data fixes complete"}
+
 def _run_migrations():
     """Add missing columns to existing tables (idempotent)."""
     try:
