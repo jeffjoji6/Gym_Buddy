@@ -27,6 +27,79 @@ async def startup_event():
     
     # Run column migrations for existing tables
     _run_migrations()
+    
+    # Merge custom Pull workouts into global Pull 🧗
+    _merge_pull_workouts()
+
+def _merge_pull_workouts():
+    """Merge specific custom workouts into the global Pull workout and rename it."""
+    try:
+        with engine.connect() as conn:
+            # 1. Ensure global "Pull" or "Pull 🧗" exists
+            # Try to find existing "Pull 🧗" first
+            result = conn.execute(text("SELECT id FROM workouts WHERE name = 'Pull 🧗'"))
+            target_id = result.scalar()
+            
+            if not target_id:
+                # Try finding "Pull"
+                result = conn.execute(text("SELECT id FROM workouts WHERE name = 'Pull'"))
+                pull_id = result.scalar()
+                
+                if pull_id:
+                    # Rename "Pull" to "Pull 🧗"
+                    conn.execute(text("UPDATE workouts SET name = 'Pull 🧗' WHERE id = :id"), {"id": pull_id})
+                    target_id = pull_id
+                    print("✓ Renamed 'Pull' to 'Pull 🧗'")
+                else:
+                    # Create "Pull 🧗" if neither exists
+                    # Check if 'admin' user exists for creator_id
+                    admin_res = conn.execute(text("SELECT id FROM users WHERE is_admin=1"))
+                    admin_id = admin_res.scalar()
+                    
+                    conn.execute(text("INSERT INTO workouts (name, created_by_user_id) VALUES ('Pull 🧗', :uid)"), {"uid": admin_id})
+                    # Get the new ID
+                    result = conn.execute(text("SELECT id FROM workouts WHERE name = 'Pull 🧗'"))
+                    target_id = result.scalar()
+                    print("✓ Created 'Pull 🧗' workout")
+            
+            conn.commit()
+            
+            # 2. Find duplicates to merge
+            # Candidates: "Jeff Pull Workout", "Sarath pulll workout"
+            # We use ILIKE to match variations
+            patterns = [
+                'Jeff Pull Workout',
+                'Sarath pulll workout', 
+                'Sarath Pull Workout'
+            ]
+            
+            for pattern in patterns:
+                # Find IDs of workouts matching pattern
+                rows = conn.execute(text("SELECT id, name FROM workouts WHERE name ILIKE :p AND id != :tid"), 
+                                  {"p": pattern, "tid": target_id}).fetchall()
+                
+                for row in rows:
+                    dup_id = row[0]
+                    dup_name = row[1]
+                    print(f"Merging '{dup_name}' (ID {dup_id}) into 'Pull 🧗' (ID {target_id})...")
+                    
+                    # Reassign Exercises
+                    conn.execute(text("UPDATE exercises SET workout_id = :tid WHERE workout_id = :did"),
+                               {"tid": target_id, "did": dup_id})
+                               
+                    # Reassign Sessions
+                    conn.execute(text("UPDATE workout_sessions SET workout_id = :tid WHERE workout_id = :did"),
+                               {"tid": target_id, "did": dup_id})
+                    
+                    # Delete the empty workout
+                    conn.execute(text("DELETE FROM workouts WHERE id = :did"), {"did": dup_id})
+                    print(f"✓ Merged and deleted '{dup_name}'")
+                    
+            conn.commit()
+            print("✓ Pull workout merge complete")
+            
+    except Exception as e:
+        print(f"Merge warning (non-fatal): {e}")
 
 def _run_migrations():
     """Add missing columns to existing tables (idempotent)."""
