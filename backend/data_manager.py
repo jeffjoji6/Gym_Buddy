@@ -62,6 +62,11 @@ class DataManager:
                 )
             
             workouts = query.all()
+            
+            # Get admin IDs for determining global status
+            admin_id_rows = db.query(User.id).filter(User.is_admin == 1).all()
+            admin_ids = [a[0] for a in admin_id_rows]
+            
             # Return dict with metadata
             return [
                 {
