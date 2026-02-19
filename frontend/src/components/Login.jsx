@@ -14,6 +14,7 @@ export default function Login() {
 
     const navigate = useNavigate();
     const [manageMode, setManageMode] = useState(false);
+    const [showMenu, setShowMenu] = useState(false);
 
     const fetchUsers = async () => {
         setLoading(true);
@@ -94,30 +95,80 @@ export default function Login() {
                             </button>
                         ) : (
                             <>
-                                <button
-                                    onClick={() => setManageMode(true)}
-                                    style={{
-                                        background: 'transparent',
-                                        color: 'var(--text-dim)',
-                                        padding: '8px 10px',
-                                        display: 'flex', alignItems: 'center', gap: '6px',
-                                        fontSize: '0.85rem'
-                                    }}
-                                >
-                                    <Pencil size={14} /> Edit
-                                </button>
-                                <button
-                                    onClick={() => navigate('/admin')}
-                                    style={{
-                                        background: 'transparent',
-                                        color: 'var(--text-dim)',
-                                        padding: '8px',
-                                        display: 'flex', alignItems: 'center'
-                                    }}
-                                    title="Admin Panel"
-                                >
-                                    <Settings size={20} />
-                                </button>
+                                <div style={{ position: 'relative' }}>
+                                    <button
+                                        onClick={() => setShowMenu(!showMenu)}
+                                        style={{
+                                            background: 'transparent',
+                                            color: 'var(--text-dim)',
+                                            padding: '8px',
+                                            display: 'flex', alignItems: 'center',
+                                            cursor: 'pointer'
+                                        }}
+                                        title="Settings"
+                                    >
+                                        <Settings size={20} />
+                                    </button>
+
+                                    {showMenu && (
+                                        <div style={{
+                                            position: 'absolute',
+                                            top: '100%',
+                                            right: 0,
+                                            marginTop: '5px',
+                                            background: 'var(--card-bg, #1a1a1a)',
+                                            border: '1px solid var(--border-color, #333)',
+                                            borderRadius: '8px',
+                                            padding: '5px',
+                                            zIndex: 100,
+                                            minWidth: '150px',
+                                            boxShadow: '0 4px 6px rgba(0,0,0,0.3)'
+                                        }}>
+                                            <button
+                                                onClick={() => {
+                                                    navigate('/admin');
+                                                    setShowMenu(false);
+                                                }}
+                                                style={{
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: '8px',
+                                                    width: '100%',
+                                                    padding: '8px 12px',
+                                                    background: 'transparent',
+                                                    color: 'var(--text-main, #fff)',
+                                                    border: 'none',
+                                                    cursor: 'pointer',
+                                                    textAlign: 'left',
+                                                    fontSize: '0.9rem'
+                                                }}
+                                            >
+                                                <Settings size={16} /> Admin Panel
+                                            </button>
+                                            <button
+                                                onClick={() => {
+                                                    setManageMode(true);
+                                                    setShowMenu(false);
+                                                }}
+                                                style={{
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: '8px',
+                                                    width: '100%',
+                                                    padding: '8px 12px',
+                                                    background: 'transparent',
+                                                    color: 'var(--text-main, #fff)',
+                                                    border: 'none',
+                                                    cursor: 'pointer',
+                                                    textAlign: 'left',
+                                                    fontSize: '0.9rem'
+                                                }}
+                                            >
+                                                <Pencil size={16} /> Manage Users
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
                             </>
                         )}
                     </div>
