@@ -26,10 +26,11 @@ async def startup_event():
     Base.metadata.create_all(bind=engine)
     
     # Run column migrations for existing tables
-    _run_migrations()
+    # _run_migrations()
     
     # Fix production data (Merge duplicates, ensure defaults)
-    _fix_production_data()
+    # _fix_production_data()
+    pass
 
 def _fix_production_data():
     """Merge specific custom workouts into global defaults and ensure defaults exist."""
