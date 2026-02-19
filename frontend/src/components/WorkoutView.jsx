@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useSearchParams, Link } from 'react-router-dom';
-import { getWorkout, logSet, updateSet, deleteSet, parseCommand, startSession, endSession, updateExerciseNotes } from '../services/api';
-import { ChevronLeft, ChevronDown, Mic, Check, Trash2, Trophy, Clock, BarChart2, Activity } from 'lucide-react';
+import { getWorkout, logSet, updateSet, deleteSet, startSession, endSession, updateExerciseNotes } from '../services/api';
+import { ChevronLeft, ChevronDown, Check, Trash2, Trophy, Clock, BarChart2 } from 'lucide-react';
 import { useUser } from '../context/UserContext';
 import EditSetModal from './EditSetModal';
 import { useNavigate } from 'react-router-dom';
@@ -240,8 +240,6 @@ export default function WorkoutView() {
 
     const [exercises, setExercises] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [listening, setListening] = useState(false);
-    const [voiceStatus, setVoiceStatus] = useState('');
     const [trigger, setTrigger] = useState(0);
     const [isEditing, setIsEditing] = useState(false);
 
@@ -358,55 +356,7 @@ export default function WorkoutView() {
         }
     };
 
-    const speak = (text) => {
-        const utterance = new SpeechSynthesisUtterance(text);
-        window.speechSynthesis.speak(utterance);
-    };
 
-    const startListening = () => {
-        if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-            alert("Browser does not support speech recognition.");
-            return;
-        }
-
-        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        const recognition = new SpeechRecognition();
-        recognition.lang = 'en-US';
-        recognition.interimResults = false;
-        recognition.maxAlternatives = 1;
-
-        recognition.onstart = () => {
-            setListening(true);
-            setVoiceStatus('Listening...');
-        };
-
-        recognition.onend = () => {
-            setListening(false);
-            setVoiceStatus('');
-        };
-
-        recognition.onresult = async (event) => {
-            const transcript = event.results[0][0].transcript;
-            setVoiceStatus(`Heard: "${transcript}"`);
-
-            try {
-                const result = await parseCommand(transcript, type, user);
-                if (result.success && result.data) {
-                    const { exercise, weight, reps } = result.data;
-                    speak(`Logging ${weight} kilos for ${reps} reps on ${exercise}`);
-                    await handleLogSet(exercise, weight, reps);
-                } else {
-                    speak("Sorry, I didn't catch that.");
-                    setVoiceStatus(`Error: ${result.message}`);
-                }
-            } catch (e) {
-                console.error(e);
-                speak("Something went wrong.");
-            }
-        };
-
-        recognition.start();
-    };
 
     const handleDeleteExercise = async (exerciseName) => {
         const { deleteExercise } = await import('../services/api');
@@ -555,17 +505,7 @@ export default function WorkoutView() {
                 </div>
             </div>
 
-            {voiceStatus && (
-                <div style={{
-                    background: 'var(--surface-highlight)',
-                    padding: '8px',
-                    textAlign: 'center',
-                    marginBottom: '1rem',
-                    borderRadius: '8px'
-                }} className="animate-slide-up">
-                    {voiceStatus}
-                </div>
-            )}
+
 
             {loading ? (
                 <div style={{ textAlign: 'center', padding: '2rem' }}>Loading...</div>
@@ -627,29 +567,7 @@ export default function WorkoutView() {
                 </div>
             )}
 
-            <div
-                onClick={startListening}
-                style={{
-                    position: 'fixed',
-                    bottom: '32px',
-                    left: '50%',
-                    transform: 'translateX(-50%)',
-                    background: listening ? 'var(--error-color)' : 'var(--primary-color)',
-                    borderRadius: '50%',
-                    width: '72px',
-                    height: '72px',
-                    display: 'flex',
-                    justifyContent: 'center',
-                    alignItems: 'center',
-                    boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
-                    cursor: 'pointer',
-                    zIndex: 100,
-                    transition: 'background 0.3s, transform 0.2s'
-                }}
-                className="animate-slide-up"
-            >
-                {listening ? <Activity color="#fff" size={32} className="animate-wiggle" /> : <Mic size={36} color="#000" />}
-            </div>
+
 
             {showAddExercise && (
                 <div className="modal-overlay" onClick={() => setShowAddExercise(false)}>
