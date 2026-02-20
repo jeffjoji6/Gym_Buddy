@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { useUser } from '../context/UserContext';
-import { useNavigate } from 'react-router-dom';
 import { Dumbbell, Plus, User, X, Settings, Pencil } from 'lucide-react';
 import { getUsers, deleteUser } from '../services/api';
 
@@ -11,8 +10,6 @@ export default function Login() {
 
     const [showAdd, setShowAdd] = useState(false);
     const [newName, setNewName] = useState('');
-
-    const navigate = useNavigate();
     const [manageMode, setManageMode] = useState(false);
     const [showMenu, setShowMenu] = useState(false);
 
@@ -124,27 +121,6 @@ export default function Login() {
                                             minWidth: '150px',
                                             boxShadow: '0 4px 6px rgba(0,0,0,0.3)'
                                         }}>
-                                            <button
-                                                onClick={() => {
-                                                    navigate('/admin');
-                                                    setShowMenu(false);
-                                                }}
-                                                style={{
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    gap: '8px',
-                                                    width: '100%',
-                                                    padding: '8px 12px',
-                                                    background: 'transparent',
-                                                    color: 'var(--text-main, #fff)',
-                                                    border: 'none',
-                                                    cursor: 'pointer',
-                                                    textAlign: 'left',
-                                                    fontSize: '0.9rem'
-                                                }}
-                                            >
-                                                <Settings size={16} /> Admin Panel
-                                            </button>
                                             <button
                                                 onClick={() => {
                                                     setManageMode(true);

@@ -13,25 +13,29 @@ export const getUsers = async () => {
 };
 
 export const deleteUser = async (username) => {
-    // Determine user ID first? Or delete by username if unique. 
-    // Schema has username as unique.
+    // Fetch the user ID first
+    const { data: user } = await supabase.from('users').select('id').eq('username', username).single();
+    if (!user) return { success: false, message: "User not found" };
+    
+    const uid = user.id;
+
+    // Manually cascade delete related data since the DB constraints might not be set to CASCADE
+    await supabase.from('sets').delete().eq('user_id', uid);
+    await supabase.from('workout_sessions').delete().eq('user_id', uid);
+    // Be careful with exercises: this deletes custom exercises they added
+    await supabase.from('exercises').delete().eq('user_id', uid);
+    await supabase.from('workouts').update({ created_by_user_id: null }).eq('created_by_user_id', uid);
+    
     const { error } = await supabase
         .from('users')
         .delete()
-        .eq('username', username);
+        .eq('id', uid);
     
     if (error) return { success: false, message: error.message };
     return { success: true, message: `User ${username} deleted` };
 };
 
 export const getWorkout = async (type, week, user, split = "A") => {
-    // We need to fetch exercises, sets, and potentially previous week's data.
-    // This logic was complex in backend/data_manager.py.
-    // Simplifying for direct DB access:
-    // 1. Get Workout ID
-    // 2. Get Exercises for workout + split
-    // 3. Get Sets for current week/user
-    
     // 1. Get Workout ID
     const { data: workout } = await supabase
         .from('workouts')
@@ -49,43 +53,57 @@ export const getWorkout = async (type, week, user, split = "A") => {
         .eq('split', split)
         .order('id');
         
-    if (!exercises) return { exercises: [] };
+    if (!exercises || exercises.length === 0) return { exercises: [] };
     
-    // 3. Attach Sets and History (prev week)
-    // This is N+1 query problem territory, but fine for small app.
-    // Optimally we'd use a View or complex join.
-    
-    const exercisesWithData = await Promise.all(exercises.map(async (ex) => {
-        // Fetch current week sets
-        const { data: currentSets } = await supabase
-            .from('sets')
-            .select('*')
-            .eq('exercise_id', ex.id)
-            .eq('user_id', (await getUserId(user)))
-            .eq('week', week)
-            .order('set_number');
-            
-        // Fetch previous week (for summary)
-        const { data: prevSets } = await supabase
-            .from('sets')
-            .select('weight, reps')
-            .eq('exercise_id', ex.id)
-            .eq('user_id', (await getUserId(user)))
-            .eq('week', week - 1)
-            .order('weight', { ascending: false }) // simple heuristic for "best" set
-            .limit(1);
-            
-        let prevSummary = null;
-        if (prevSets && prevSets.length > 0) {
-            prevSummary = `${prevSets[0].weight}kg x ${prevSets[0].reps}`;
-        }
-            
+    const exerciseIds = exercises.map(ex => ex.id);
+    const userId = await getUserId(user);
+
+    // 3. Fetch all current week sets for these exercises in ONE query
+    const { data: currentSets } = await supabase
+        .from('sets')
+        .select('*')
+        .in('exercise_id', exerciseIds)
+        .eq('user_id', userId)
+        .eq('week', week)
+        .order('set_number');
+        
+    // 4. Fetch all previous week sets for these exercises in ONE query
+    const { data: prevSets } = await supabase
+        .from('sets')
+        .select('exercise_id, weight, reps')
+        .in('exercise_id', exerciseIds)
+        .eq('user_id', userId)
+        .eq('week', week - 1)
+        .order('weight', { ascending: false });
+
+    // Group current sets
+    const setsByExercise = {};
+    if (currentSets) {
+        currentSets.forEach(s => {
+            if (!setsByExercise[s.exercise_id]) setsByExercise[s.exercise_id] = [];
+            setsByExercise[s.exercise_id].push(s);
+        });
+    }
+
+    // Group prev sets to find the best summary
+    const prevSummaryByExercise = {};
+    if (prevSets) {
+        prevSets.forEach(s => {
+            // Because we ordered by weight descending globally, the first one we see 
+            // per exercise is the heaviest
+            if (!prevSummaryByExercise[s.exercise_id]) {
+                prevSummaryByExercise[s.exercise_id] = `${s.weight}kg x ${s.reps}`;
+            }
+        });
+    }
+
+    const exercisesWithData = exercises.map((ex) => {
         return {
             ...ex,
-            sets: currentSets || [],
-            prev_week_summary: prevSummary
+            sets: setsByExercise[ex.id] || [],
+            prev_week_summary: prevSummaryByExercise[ex.id] || null
         };
-    }));
+    });
     
     return { exercises: exercisesWithData };
 };
@@ -106,43 +124,35 @@ export const getWorkouts = async (username) => {
 };
 
 export const logSet = async (payload) => {
-    const { workout_type, exercise_name, weight, reps, week, user } = payload;
+    const { exercise_id, weight, reps, week, user } = payload;
     const userId = await getUserId(user);
-    
-    // Get Exercise ID
-    const { data: exercise } = await supabase
-        .from('exercises')
-        .select('id')
-        .eq('name', exercise_name)
-        .single(); // Risk: Name might duplicate across workouts?
-        // Ideally we should pass exercise_id from UI, but preserving API signature for now.
-        
-    if (!exercise) return { success: false, message: "Exercise not found" };
     
     // Get next set number
     const { count } = await supabase
         .from('sets')
         .select('*', { count: 'exact', head: true })
-        .eq('exercise_id', exercise.id)
+        .eq('exercise_id', exercise_id)
         .eq('user_id', userId)
         .eq('week', week);
         
     const setNumber = (count || 0) + 1;
     
-    const { error } = await supabase
+    const { data: insertedData, error } = await supabase
         .from('sets')
         .insert({
-            exercise_id: exercise.id,
+            exercise_id,
             user_id: userId,
             week,
             weight,
             reps,
             set_number: setNumber,
             timestamp: new Date().toISOString()
-        });
+        })
+        .select()
+        .single();
         
     if (error) return { success: false, message: error.message };
-    return { success: true, message: "Logged" };
+    return { success: true, message: "Logged", data: insertedData };
 };
 
 export const updateSet = async (payload) => {
@@ -227,7 +237,7 @@ export const addExercise = async (workoutType, name, username, split = "A") => {
     return { success: !error, message: error ? error.message : "Added" };
 };
 
-export const deleteExercise = async (workoutType, exerciseName, username) => {
+export const deleteExercise = async (exerciseId) => {
     // Delete from DB. Constraints should cascade sets deletion?
     // If not, we might need manual cleanup.
     // Assuming Postgres ON DELETE CASCADE is set up or we do it manually.
@@ -235,7 +245,7 @@ export const deleteExercise = async (workoutType, exerciseName, username) => {
     const { error } = await supabase
         .from('exercises')
         .delete()
-        .eq('name', exerciseName); // Risk: duplicates if name not unique to workout
+        .eq('id', exerciseId);
         
     return { success: !error, message: error ? error.message : "Deleted" };
 };
@@ -315,11 +325,11 @@ export const getDashboardStats = async (user) => {
     return { success: true, data: { total_workouts: 0 } };
 };
 
-export const updateExerciseNotes = async (workoutType, exerciseName, setupNotes, user, split = "A") => {
+export const updateExerciseNotes = async (exerciseId, setupNotes) => {
     const { error } = await supabase
         .from('exercises')
         .update({ setup_notes: setupNotes })
-        .eq('name', exerciseName);
+        .eq('id', exerciseId);
         
     return { success: !error, message: error ? error.message : "Updated" };
 };

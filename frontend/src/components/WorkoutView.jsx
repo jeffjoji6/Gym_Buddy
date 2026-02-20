@@ -1,12 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useSearchParams, Link } from 'react-router-dom';
 import { getWorkout, logSet, updateSet, deleteSet, startSession, endSession, updateExerciseNotes } from '../services/api';
-import { ChevronLeft, ChevronDown, Check, Trash2, Trophy, Clock, BarChart2 } from 'lucide-react';
+import { ChevronLeft, ChevronDown, ChevronUp, Check, Trash2, Trophy, Clock, BarChart2 } from 'lucide-react';
 import { useUser } from '../context/UserContext';
 import EditSetModal from './EditSetModal';
 import { useNavigate } from 'react-router-dom';
 
-const ExerciseCard = ({ exercise, onLog, onUpdate, onDelete, onDeleteExercise, week, isEditing, onUpdateNotes, workoutType, user, split }) => {
+const ExerciseCard = React.memo(({ exercise, onLog, onUpdate, onDelete, onDeleteExercise, onMoveUp, onMoveDown, week, isEditing, onUpdateNotes, workoutType, user, split }) => {
     const [expanded, setExpanded] = useState(false);
     const [notesExpanded, setNotesExpanded] = useState(false);
     const sets = exercise.sets || [];
@@ -17,10 +17,11 @@ const ExerciseCard = ({ exercise, onLog, onUpdate, onDelete, onDeleteExercise, w
 
     const [editingSet, setEditingSet] = useState(null);
     const [justLogged, setJustLogged] = useState(false);
+    const [savingNotes, setSavingNotes] = useState(false);
 
     const handleLog = async () => {
         if (!weight || !reps) return;
-        await onLog(exercise.name, weight, reps);
+        await onLog(exercise.id, weight, reps);
         setReps('');
 
         // Trigger animation
@@ -50,25 +51,45 @@ const ExerciseCard = ({ exercise, onLog, onUpdate, onDelete, onDeleteExercise, w
                         <span style={{ fontSize: '0.85rem', color: 'var(--text-dim)' }}>Last: {exercise.prev_week_summary}</span>
                     )}
                     {onDeleteExercise && isEditing && (
-                        <button
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                if (window.confirm(`Delete exercise "${exercise.name}"?`)) {
-                                    onDeleteExercise(exercise.name);
-                                }
-                            }}
-                            style={{
-                                background: 'transparent',
-                                border: 'none',
-                                color: 'var(--error-color)',
-                                cursor: 'pointer',
-                                padding: '4px',
-                                display: 'flex',
-                                alignItems: 'center'
-                            }}
-                        >
-                            <Trash2 size={18} />
-                        </button>
+                        <>
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onMoveUp(exercise.id);
+                                }}
+                                style={{ background: 'transparent', border: 'none', color: 'var(--text-color)', cursor: 'pointer', padding: '4px', display: 'flex', alignItems: 'center' }}
+                            >
+                                <ChevronUp size={20} />
+                            </button>
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onMoveDown(exercise.id);
+                                }}
+                                style={{ background: 'transparent', border: 'none', color: 'var(--text-color)', cursor: 'pointer', padding: '4px', display: 'flex', alignItems: 'center' }}
+                            >
+                                <ChevronDown size={20} />
+                            </button>
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (window.confirm(`Delete exercise "${exercise.name}"?`)) {
+                                        onDeleteExercise(exercise.id);
+                                    }
+                                }}
+                                style={{
+                                    background: 'transparent',
+                                    border: 'none',
+                                    color: 'var(--error-color)',
+                                    cursor: 'pointer',
+                                    padding: '4px',
+                                    display: 'flex',
+                                    alignItems: 'center'
+                                }}
+                            >
+                                <Trash2 size={18} />
+                            </button>
+                        </>
                     )}
                     <ChevronDown
                         size={24}
@@ -202,17 +223,24 @@ const ExerciseCard = ({ exercise, onLog, onUpdate, onDelete, onDeleteExercise, w
                         />
                         <button
                             onClick={async () => {
-                                await onUpdateNotes(exercise.name, notes);
+                                setSavingNotes(true);
+                                await onUpdateNotes(exercise.id, notes);
+                                setTimeout(() => setSavingNotes(false), 1000);
                             }}
                             className="button-secondary"
+                            disabled={savingNotes}
                             style={{
                                 marginTop: '0.5rem',
                                 width: '100%',
                                 fontSize: '0.85rem',
-                                padding: '8px'
+                                padding: '8px',
+                                background: savingNotes ? 'var(--success-color)' : 'transparent',
+                                color: savingNotes ? '#000' : 'var(--text-color)',
+                                borderColor: savingNotes ? 'var(--success-color)' : 'var(--text-dim)',
+                                transition: 'all 0.2s ease'
                             }}
                         >
-                            Save Notes
+                            {savingNotes ? 'Saved!' : 'Save Notes'}
                         </button>
                     </div>
                 )}
@@ -228,7 +256,7 @@ const ExerciseCard = ({ exercise, onLog, onUpdate, onDelete, onDeleteExercise, w
             )}
         </div>
     );
-};
+});
 
 export default function WorkoutView() {
     const { type } = useParams();
@@ -252,6 +280,7 @@ export default function WorkoutView() {
 
     const [showAddExercise, setShowAddExercise] = useState(false);
     const [newExerciseName, setNewExerciseName] = useState('');
+    const [isAddingExercise, setIsAddingExercise] = useState(false);
     const [showStartReminder, setShowStartReminder] = useState(false);
 
     // Timer State
@@ -274,7 +303,31 @@ export default function WorkoutView() {
             if (exercises.length === 0) setLoading(true);
             try {
                 const data = await getWorkout(type, week, user, split);
-                setExercises(data.exercises);
+
+                // Sort based on local storage
+                let savedOrder = [];
+                try {
+                    const saved = localStorage.getItem(`gym_buddy_order_${type}_${split}`);
+                    if (saved) savedOrder = JSON.parse(saved);
+                } catch (e) { }
+
+                let sortedExercises = [...data.exercises];
+                if (savedOrder.length > 0) {
+                    sortedExercises.sort((a, b) => {
+                        const indexA = savedOrder.indexOf(a.id);
+                        const indexB = savedOrder.indexOf(b.id);
+                        if (indexA === -1 && indexB === -1) return 0;
+                        if (indexA === -1) return 1; // Put new ones at bottom
+                        if (indexB === -1) return -1;
+                        return indexA - indexB;
+                    });
+                }
+
+                // Update local storage if new exercises were added
+                const currentIds = sortedExercises.map(e => e.id);
+                localStorage.setItem(`gym_buddy_order_${type}_${split}`, JSON.stringify(currentIds));
+
+                setExercises(sortedExercises);
             } catch (e) {
                 console.error(e);
             }
@@ -304,22 +357,51 @@ export default function WorkoutView() {
         return () => clearInterval(interval);
     }, [startTime, showSummary]);
 
-    const handleLogSet = async (exerciseName, weight, reps) => {
+    const handleLogSet = async (exerciseId, weight, reps) => {
         // Remind user to start workout if they haven't
         if (!startTime) {
             setShowStartReminder(true);
             return; // Don't log the set yet
         }
 
-        await logSet({
-            workout_type: type,
-            exercise_name: exerciseName,
+        const optimisticSet = {
+            id: Date.now(), // temp id
+            exercise_id: exerciseId,
+            weight: parseFloat(weight),
+            reps: parseInt(reps),
+            set_number: exercises.find(e => e.id === exerciseId)?.sets?.length + 1 || 1
+        };
+
+        // Optimistic update
+        setExercises(prev => prev.map(ex => {
+            if (ex.id === exerciseId) {
+                return { ...ex, sets: [...(ex.sets || []), optimisticSet] };
+            }
+            return ex;
+        }));
+
+        const res = await logSet({
+            exercise_id: exerciseId,
             weight: parseFloat(weight),
             reps: parseInt(reps),
             week: week,
             user: user
         });
-        setTrigger(t => t + 1);
+
+        if (res.success && res.data) {
+            setExercises(prev => prev.map(ex => {
+                if (ex.id === exerciseId) {
+                    return {
+                        ...ex,
+                        sets: ex.sets.map(s => s.id === optimisticSet.id ? res.data : s)
+                    };
+                }
+                return ex;
+            }));
+        } else {
+            // Error handling fallback
+            setTrigger(t => t + 1);
+        }
     };
 
     const handleStartReminderConfirm = async () => {
@@ -328,45 +410,97 @@ export default function WorkoutView() {
     };
 
     const handleUpdateSet = async (id, weight, reps) => {
+        // Optimistic update
+        setExercises(prev => prev.map(ex => ({
+            ...ex,
+            sets: (ex.sets || []).map(s => s.id === id ? { ...s, weight, reps } : s)
+        })));
+
         await updateSet({
             set_id: id,
             weight: weight,
             reps: reps,
             user: user
         });
-        setTrigger(t => t + 1);
     };
 
     const handleDeleteSet = async (id) => {
+        // Optimistic update
+        setExercises(prev => prev.map(ex => ({
+            ...ex,
+            sets: (ex.sets || []).filter(s => s.id !== id)
+        })));
+
         await deleteSet({
             set_id: id,
             user: user
         });
-        setTrigger(t => t + 1);
     };
 
     const handleAddExercise = async (e) => {
         e.preventDefault();
-        if (newExerciseName.trim()) {
+        const trimmedName = newExerciseName.trim();
+
+        if (trimmedName && !isAddingExercise) {
+            // Prevent duplicates
+            const isDuplicate = exercises.some(ex => ex.name.toLowerCase() === trimmedName.toLowerCase());
+            if (isDuplicate) {
+                alert(`${trimmedName} is already in your workout!`);
+                return;
+            }
+
+            setIsAddingExercise(true);
             const { addExercise } = await import('../services/api');
-            await addExercise(type, newExerciseName.trim(), user, split);
+            await addExercise(type, trimmedName, user, split);
             setTrigger(t => t + 1);
             setShowAddExercise(false);
             setNewExerciseName('');
+            setIsAddingExercise(false);
         }
     };
 
-
-
-    const handleDeleteExercise = async (exerciseName) => {
-        const { deleteExercise } = await import('../services/api');
-        await deleteExercise(type, exerciseName, user);
-        setTrigger(t => t + 1);
+    const handleDeleteExercise = async (exerciseId) => {
+        setExercises(prev => prev.filter(ex => ex.id !== exerciseId));
+        await deleteExercise(exerciseId);
     };
 
-    const handleUpdateNotes = async (exerciseName, setupNotes) => {
-        await updateExerciseNotes(type, exerciseName, setupNotes, user, split);
-        setTrigger(t => t + 1);
+    const handleUpdateNotes = async (exerciseId, setupNotes) => {
+        setExercises(prev => prev.map(ex => ex.id === exerciseId ? { ...ex, setup_notes: setupNotes } : ex));
+        await updateExerciseNotes(exerciseId, setupNotes);
+    };
+
+    const handleMoveUp = (exerciseId) => {
+        setExercises(prev => {
+            const index = prev.findIndex(ex => ex.id === exerciseId);
+            if (index <= 0) return prev; // Already at top
+
+            const newExercises = [...prev];
+            // Swap
+            [newExercises[index - 1], newExercises[index]] = [newExercises[index], newExercises[index - 1]];
+
+            // Save to local storage
+            const currentIds = newExercises.map(e => e.id);
+            localStorage.setItem(`gym_buddy_order_${type}_${split}`, JSON.stringify(currentIds));
+
+            return newExercises;
+        });
+    };
+
+    const handleMoveDown = (exerciseId) => {
+        setExercises(prev => {
+            const index = prev.findIndex(ex => ex.id === exerciseId);
+            if (index === -1 || index === prev.length - 1) return prev; // Already at bottom
+
+            const newExercises = [...prev];
+            // Swap
+            [newExercises[index + 1], newExercises[index]] = [newExercises[index], newExercises[index + 1]];
+
+            // Save to local storage
+            const currentIds = newExercises.map(e => e.id);
+            localStorage.setItem(`gym_buddy_order_${type}_${split}`, JSON.stringify(currentIds));
+
+            return newExercises;
+        });
     };
 
     const formatTime = (seconds) => {
@@ -524,6 +658,8 @@ export default function WorkoutView() {
                                 onUpdate={handleUpdateSet}
                                 onDelete={handleDeleteSet}
                                 onDeleteExercise={handleDeleteExercise}
+                                onMoveUp={handleMoveUp}
+                                onMoveDown={handleMoveDown}
                                 onUpdateNotes={handleUpdateNotes}
                                 workoutType={type}
                                 user={user}
@@ -584,7 +720,13 @@ export default function WorkoutView() {
                             />
                             <div style={{ display: 'flex', gap: '1rem' }}>
                                 <button type="button" className="button-secondary" onClick={() => setShowAddExercise(false)} style={{ flex: 1 }}>Cancel</button>
-                                <button className="button-primary" style={{ flex: 1 }}>Add</button>
+                                <button
+                                    className="button-primary"
+                                    style={{ flex: 1, opacity: isAddingExercise ? 0.7 : 1 }}
+                                    disabled={isAddingExercise}
+                                >
+                                    {isAddingExercise ? 'Adding...' : 'Add'}
+                                </button>
                             </div>
                         </form>
                     </div>
@@ -608,14 +750,15 @@ export default function WorkoutView() {
                             <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
                                 <Trophy size={64} color="#ffd700" style={{ marginBottom: '1rem' }} />
                                 <h2 style={{ fontSize: '2rem', margin: '0 0 8px 0' }}>Workout Complete!</h2>
-                                <p style={{ color: 'var(--text-dim)' }}>Great job, {user?.username}!</p>
+                                <p style={{ color: 'var(--text-color)', fontSize: '1.2rem', fontWeight: '500' }}>Great job, {user}!</p>
+                                <p style={{ color: 'var(--text-dim)', fontStyle: 'italic', marginTop: '8px' }}>"One step closer to your goals. Keep showing up."</p>
                             </div>
 
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '2rem' }}>
                                 <div className="card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '16px' }}>
                                     <Clock size={24} color="var(--primary-color)" style={{ marginBottom: '8px' }} />
                                     <span style={{ fontSize: '0.9rem', color: 'var(--text-dim)' }}>Duration</span>
-                                    <span style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>{summaryData.duration_minutes}m</span>
+                                    <span style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>{Math.ceil(duration / 60)}m</span>
                                 </div>
                                 <div className="card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '16px' }}>
                                     <BarChart2 size={24} color="var(--success-color)" style={{ marginBottom: '8px' }} />

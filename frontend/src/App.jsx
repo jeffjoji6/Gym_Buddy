@@ -1,11 +1,12 @@
+import React, { Suspense, lazy } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
-import Home from './components/Home';
-import WorkoutView from './components/WorkoutView';
 import Layout from './components/Layout';
 import Login from './components/Login';
-import Admin from './components/Admin';
-import Dashboard from './components/Dashboard';
 import { UserProvider, useUser } from './context/UserContext';
+
+const Home = lazy(() => import('./components/Home'));
+const WorkoutView = lazy(() => import('./components/WorkoutView'));
+const Dashboard = lazy(() => import('./components/Dashboard'));
 
 // Authenticated Wrapper to check if user is logged in
 function AuthenticatedRoutes() {
@@ -14,13 +15,14 @@ function AuthenticatedRoutes() {
 
     return (
         <Layout>
-            <Routes>
-                <Route path="/" element={<Home />} />
-                <Route path="/workout/:type" element={<WorkoutView />} />
-                <Route path="/dashboard" element={<Dashboard />} />
-                <Route path="/admin" element={<Admin />} />
-                <Route path="*" element={<Navigate to="/" />} />
-            </Routes>
+            <Suspense fallback={<div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-dim)' }}>Loading...</div>}>
+                <Routes>
+                    <Route path="/" element={<Home />} />
+                    <Route path="/workout/:type" element={<WorkoutView />} />
+                    <Route path="/dashboard" element={<Dashboard />} />
+                    <Route path="*" element={<Navigate to="/" />} />
+                </Routes>
+            </Suspense>
         </Layout>
     );
 }
