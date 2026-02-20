@@ -94,11 +94,24 @@ export const getWorkout = async (type, week, user, split = "A") => {
         });
     }
 
+    // 5. Fetch per-user setup notes
+    const { data: userNotes } = await supabase
+        .from('exercise_notes')
+        .select('exercise_id, notes')
+        .in('exercise_id', exerciseIds)
+        .eq('user_id', userId);
+
+    const notesByExercise = {};
+    if (userNotes) {
+        userNotes.forEach(n => { notesByExercise[n.exercise_id] = n.notes; });
+    }
+
     const exercisesWithData = exercises.map((ex) => {
         return {
             ...ex,
             sets: setsByExercise[ex.id] || [],
-            prev_week_sets: prevSetsByExercise[ex.id] || []
+            prev_week_sets: prevSetsByExercise[ex.id] || [],
+            setup_notes: notesByExercise[ex.id] || ''
         };
     });
     
@@ -311,15 +324,59 @@ export const endSession = async (sessionId, user, notes = "", totalVolume = 0) =
 };
 
 export const getDashboardStats = async (user) => {
-    // Stub
-    return { success: true, data: { total_workouts: 0 } };
+    try {
+        const userId = await getUserId(user);
+        if (!userId) return { success: false };
+
+        // Get recent workout sessions (last 30)
+        const { data: sessions } = await supabase
+            .from('workout_sessions')
+            .select('id, start_time, end_time, workout_id, workouts(name)')
+            .eq('user_id', userId)
+            .not('end_time', 'is', null)
+            .order('start_time', { ascending: false })
+            .limit(30);
+
+        // Workouts this week (Mon-Sun)
+        const now = new Date();
+        const dayOfWeek = now.getDay(); // 0=Sun
+        const monday = new Date(now);
+        monday.setDate(now.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
+        monday.setHours(0, 0, 0, 0);
+
+        const workoutsThisWeek = (sessions || []).filter(s => new Date(s.start_time) >= monday).length;
+
+        const recentActivity = (sessions || []).slice(0, 10).map(s => ({
+            date: s.start_time,
+            workout: s.workouts?.name || 'Workout',
+            pr_count: 0,
+            pr_details: null
+        }));
+
+        return {
+            success: true,
+            data: {
+                workouts_this_week: workoutsThisWeek,
+                prs_this_week: 0,
+                recent_activity: recentActivity
+            }
+        };
+    } catch(e) {
+        console.error('getDashboardStats error', e);
+        return { success: false };
+    }
 };
 
-export const updateExerciseNotes = async (exerciseId, setupNotes) => {
+export const updateExerciseNotes = async (exerciseId, setupNotes, user) => {
+    const userId = await getUserId(user);
+    if (!userId) return { success: false, message: 'User not found' };
+
     const { error } = await supabase
-        .from('exercises')
-        .update({ setup_notes: setupNotes })
-        .eq('id', exerciseId);
+        .from('exercise_notes')
+        .upsert(
+            { exercise_id: exerciseId, user_id: userId, notes: setupNotes, updated_at: new Date().toISOString() },
+            { onConflict: 'exercise_id,user_id' }
+        );
         
     return { success: !error, message: error ? error.message : "Updated" };
 };

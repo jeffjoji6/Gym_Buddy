@@ -469,7 +469,7 @@ export default function WorkoutView() {
 
     const handleUpdateNotes = async (exerciseId, setupNotes) => {
         setExercises(prev => prev.map(ex => ex.id === exerciseId ? { ...ex, setup_notes: setupNotes } : ex));
-        await updateExerciseNotes(exerciseId, setupNotes);
+        await updateExerciseNotes(exerciseId, setupNotes, user);
     };
 
     const handleDragStart = (e, id) => {
