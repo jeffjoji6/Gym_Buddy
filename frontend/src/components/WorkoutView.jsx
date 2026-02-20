@@ -8,7 +8,6 @@ import { useNavigate } from 'react-router-dom';
 
 const ExerciseCard = React.memo(({ exercise, onLog, onUpdate, onDelete, onDeleteExercise, onMoveUp, onMoveDown, week, isEditing, onUpdateNotes, workoutType, user, split }) => {
     const [expanded, setExpanded] = useState(false);
-    const [notesExpanded, setNotesExpanded] = useState(false);
     const sets = exercise.sets || [];
 
     const [weight, setWeight] = useState('');
@@ -47,29 +46,13 @@ const ExerciseCard = React.memo(({ exercise, onLog, onUpdate, onDelete, onDelete
             >
                 <span style={{ fontWeight: '600', fontSize: '1.2rem' }}>{exercise.name}</span>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    {exercise.prev_week_summary && (
-                        <span style={{ fontSize: '0.85rem', color: 'var(--text-dim)' }}>Last: {exercise.prev_week_summary}</span>
+                    {exercise.prev_week_sets && exercise.prev_week_sets.length > 0 && (
+                        <span style={{ fontSize: '0.85rem', color: 'var(--text-dim)' }}>
+                            Last: {exercise.prev_week_sets.map(s => `${s.weight}kg x ${s.reps}`).join(', ')}
+                        </span>
                     )}
                     {onDeleteExercise && isEditing && (
                         <>
-                            <button
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    onMoveUp(exercise.id);
-                                }}
-                                style={{ background: 'transparent', border: 'none', color: 'var(--text-color)', cursor: 'pointer', padding: '4px', display: 'flex', alignItems: 'center' }}
-                            >
-                                <ChevronUp size={20} />
-                            </button>
-                            <button
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    onMoveDown(exercise.id);
-                                }}
-                                style={{ background: 'transparent', border: 'none', color: 'var(--text-color)', cursor: 'pointer', padding: '4px', display: 'flex', alignItems: 'center' }}
-                            >
-                                <ChevronDown size={20} />
-                            </button>
                             <button
                                 onClick={(e) => {
                                     e.stopPropagation();
@@ -180,70 +163,58 @@ const ExerciseCard = React.memo(({ exercise, onLog, onUpdate, onDelete, onDelete
             {/* Setup Notes Section */}
             <div style={{ marginTop: '1rem', borderTop: '1px solid var(--surface-highlight)', paddingTop: '0.5rem' }}>
                 <div
-                    onClick={() => setNotesExpanded(!notesExpanded)}
                     style={{
                         display: 'flex',
                         justifyContent: 'space-between',
                         alignItems: 'center',
-                        cursor: 'pointer',
                         padding: '8px 0'
                     }}
                 >
                     <span style={{ fontSize: '0.9rem', color: 'var(--text-dim)', fontWeight: '500' }}>
                         Setup Notes
                     </span>
-                    <ChevronDown
-                        size={18}
-                        style={{
-                            transform: notesExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
-                            transition: 'transform 0.2s',
-                            color: 'var(--text-dim)'
-                        }}
-                    />
                 </div>
 
-                {notesExpanded && (
-                    <div className="animate-fade-in" style={{ marginTop: '0.5rem' }}>
-                        <textarea
-                            value={notes}
-                            onChange={(e) => setNotes(e.target.value)}
-                            placeholder="e.g., Bench at 30°, Cable at notch 5, Seat position 3"
-                            style={{
-                                width: '100%',
-                                minHeight: '60px',
-                                background: 'var(--surface-highlight)',
-                                border: '1px solid var(--surface-highlight)',
-                                borderRadius: '8px',
-                                padding: '8px',
-                                color: 'var(--text-color)',
-                                fontSize: '0.9rem',
-                                resize: 'vertical',
-                                fontFamily: 'inherit'
-                            }}
-                        />
-                        <button
-                            onClick={async () => {
-                                setSavingNotes(true);
-                                await onUpdateNotes(exercise.id, notes);
-                                setTimeout(() => setSavingNotes(false), 1000);
-                            }}
-                            className="button-secondary"
-                            disabled={savingNotes}
-                            style={{
-                                marginTop: '0.5rem',
-                                width: '100%',
-                                fontSize: '0.85rem',
-                                padding: '8px',
-                                background: savingNotes ? 'var(--success-color)' : 'transparent',
-                                color: savingNotes ? '#000' : 'var(--text-color)',
-                                borderColor: savingNotes ? 'var(--success-color)' : 'var(--text-dim)',
-                                transition: 'all 0.2s ease'
-                            }}
-                        >
-                            {savingNotes ? 'Saved!' : 'Save Notes'}
-                        </button>
-                    </div>
-                )}
+                <div className="animate-fade-in" style={{ marginTop: '0.5rem' }}>
+                    <textarea
+                        value={notes}
+                        onChange={(e) => setNotes(e.target.value)}
+                        placeholder="e.g., Bench at 30°, Cable at notch 5, Seat position 3"
+                        style={{
+                            width: '100%',
+                            minHeight: '60px',
+                            background: 'var(--surface-highlight)',
+                            border: '1px solid var(--surface-highlight)',
+                            borderRadius: '8px',
+                            padding: '8px',
+                            color: 'var(--text-color)',
+                            fontSize: '0.9rem',
+                            resize: 'vertical',
+                            fontFamily: 'inherit'
+                        }}
+                    />
+                    <button
+                        onClick={async () => {
+                            setSavingNotes(true);
+                            await onUpdateNotes(exercise.id, notes);
+                            setTimeout(() => setSavingNotes(false), 1000);
+                        }}
+                        className="button-secondary"
+                        disabled={savingNotes}
+                        style={{
+                            marginTop: '0.5rem',
+                            width: '100%',
+                            fontSize: '0.85rem',
+                            padding: '8px',
+                            background: savingNotes ? 'var(--success-color)' : 'transparent',
+                            color: savingNotes ? '#000' : 'var(--text-color)',
+                            borderColor: savingNotes ? 'var(--success-color)' : 'var(--text-dim)',
+                            transition: 'all 0.2s ease'
+                        }}
+                    >
+                        {savingNotes ? 'Saved!' : 'Save Notes'}
+                    </button>
+                </div>
             </div>
 
             {editingSet && (
@@ -282,6 +253,7 @@ export default function WorkoutView() {
     const [newExerciseName, setNewExerciseName] = useState('');
     const [isAddingExercise, setIsAddingExercise] = useState(false);
     const [showStartReminder, setShowStartReminder] = useState(false);
+    const [draggedExId, setDraggedExId] = useState(null);
 
     // Timer State
     const [startTime, setStartTime] = useState(null);
@@ -299,8 +271,38 @@ export default function WorkoutView() {
     useEffect(() => {
         const load = async () => {
             if (!user) return;
-            // Only show full loading spinner on initial mount or type change, not on minor updates like logging a set
-            if (exercises.length === 0) setLoading(true);
+
+            const cacheKey = `gym_buddy_cache_${type}_${split}_${week}_${user}`;
+            const cachedData = localStorage.getItem(cacheKey);
+            let hasCache = false;
+
+            if (cachedData) {
+                try {
+                    const parsed = JSON.parse(cachedData);
+                    let savedOrder = [];
+                    try {
+                        const saved = localStorage.getItem(`gym_buddy_order_${type}_${split}`);
+                        if (saved) savedOrder = JSON.parse(saved);
+                    } catch (e) { }
+
+                    if (savedOrder.length > 0) {
+                        parsed.sort((a, b) => {
+                            const indexA = savedOrder.indexOf(a.id);
+                            const indexB = savedOrder.indexOf(b.id);
+                            if (indexA === -1 && indexB === -1) return 0;
+                            if (indexA === -1) return 1;
+                            if (indexB === -1) return -1;
+                            return indexA - indexB;
+                        });
+                    }
+                    setExercises(parsed);
+                    hasCache = true;
+                } catch (e) { }
+            }
+
+            // Only show full loading spinner on initial mount if NO CACHE exists
+            if (!hasCache && exercises.length === 0) setLoading(true);
+
             try {
                 const data = await getWorkout(type, week, user, split);
 
@@ -326,6 +328,7 @@ export default function WorkoutView() {
                 // Update local storage if new exercises were added
                 const currentIds = sortedExercises.map(e => e.id);
                 localStorage.setItem(`gym_buddy_order_${type}_${split}`, JSON.stringify(currentIds));
+                localStorage.setItem(cacheKey, JSON.stringify(sortedExercises));
 
                 setExercises(sortedExercises);
             } catch (e) {
@@ -469,38 +472,33 @@ export default function WorkoutView() {
         await updateExerciseNotes(exerciseId, setupNotes);
     };
 
-    const handleMoveUp = (exerciseId) => {
-        setExercises(prev => {
-            const index = prev.findIndex(ex => ex.id === exerciseId);
-            if (index <= 0) return prev; // Already at top
-
-            const newExercises = [...prev];
-            // Swap
-            [newExercises[index - 1], newExercises[index]] = [newExercises[index], newExercises[index - 1]];
-
-            // Save to local storage
-            const currentIds = newExercises.map(e => e.id);
-            localStorage.setItem(`gym_buddy_order_${type}_${split}`, JSON.stringify(currentIds));
-
-            return newExercises;
-        });
+    const handleDragStart = (e, id) => {
+        setDraggedExId(id);
     };
 
-    const handleMoveDown = (exerciseId) => {
+    const handleDragOver = (e) => {
+        e.preventDefault();
+    };
+
+    const handleDrop = (e, targetId) => {
+        e.preventDefault();
+        if (!draggedExId || draggedExId === targetId) return;
+
         setExercises(prev => {
-            const index = prev.findIndex(ex => ex.id === exerciseId);
-            if (index === -1 || index === prev.length - 1) return prev; // Already at bottom
+            const dragIndex = prev.findIndex(ex => ex.id === draggedExId);
+            const dropIndex = prev.findIndex(ex => ex.id === targetId);
+            if (dragIndex === -1 || dropIndex === -1) return prev;
 
             const newExercises = [...prev];
-            // Swap
-            [newExercises[index + 1], newExercises[index]] = [newExercises[index], newExercises[index + 1]];
+            const [draggedItem] = newExercises.splice(dragIndex, 1);
+            newExercises.splice(dropIndex, 0, draggedItem);
 
-            // Save to local storage
             const currentIds = newExercises.map(e => e.id);
             localStorage.setItem(`gym_buddy_order_${type}_${split}`, JSON.stringify(currentIds));
 
             return newExercises;
         });
+        setDraggedExId(null);
     };
 
     const formatTime = (seconds) => {
@@ -533,11 +531,26 @@ export default function WorkoutView() {
             localStorage.removeItem(`gym_buddy_session_id_${user}_${type}_${split}`);
             return;
         }
+
+        // Calculate total volume across all tracked sets
+        let calculatedVolume = 0;
+        exercises.forEach(ex => {
+            if (ex.sets && Array.isArray(ex.sets)) {
+                ex.sets.forEach(s => {
+                    const w = parseFloat(s.weight) || 0;
+                    const r = parseInt(s.reps) || 0;
+                    calculatedVolume += (w * r);
+                });
+            }
+        });
+
         setFinishing(true);
         try {
-            const res = await endSession(sessionId, user, finishNotes);
+            const res = await endSession(sessionId, user, finishNotes, calculatedVolume);
             if (res.success) {
-                setSummaryData(res);
+                // Snapshot the live duration BEFORE clearing startTime
+                const snapshotDuration = duration;
+                setSummaryData({ ...res, duration_seconds: snapshotDuration });
                 setShowSummary(true);
                 // Clear session
                 setStartTime(null);
@@ -651,15 +664,27 @@ export default function WorkoutView() {
                         </div>
                     )}
                     {exercises.map((ex, i) => (
-                        <div key={ex.id} className="animate-slide-up" style={{ animationDelay: `${i * 0.05}s` }}>
+                        <div
+                            key={ex.id}
+                            className="animate-slide-up"
+                            style={{
+                                animationDelay: `${i * 0.05}s`,
+                                opacity: draggedExId === ex.id ? 0.5 : 1,
+                                cursor: isEditing ? 'grab' : 'default',
+                                transition: 'opacity 0.2s ease'
+                            }}
+                            draggable={isEditing}
+                            onDragStart={(e) => isEditing && handleDragStart(e, ex.id)}
+                            onDragOver={isEditing ? handleDragOver : undefined}
+                            onDrop={(e) => isEditing && handleDrop(e, ex.id)}
+                            onDragEnd={() => setDraggedExId(null)}
+                        >
                             <ExerciseCard
                                 exercise={ex}
                                 onLog={handleLogSet}
                                 onUpdate={handleUpdateSet}
                                 onDelete={handleDeleteSet}
                                 onDeleteExercise={handleDeleteExercise}
-                                onMoveUp={handleMoveUp}
-                                onMoveDown={handleMoveDown}
                                 onUpdateNotes={handleUpdateNotes}
                                 workoutType={type}
                                 user={user}
@@ -758,7 +783,7 @@ export default function WorkoutView() {
                                 <div className="card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '16px' }}>
                                     <Clock size={24} color="var(--primary-color)" style={{ marginBottom: '8px' }} />
                                     <span style={{ fontSize: '0.9rem', color: 'var(--text-dim)' }}>Duration</span>
-                                    <span style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>{Math.ceil(duration / 60)}m</span>
+                                    <span style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>{Math.ceil((summaryData.duration_seconds || 0) / 60)}m</span>
                                 </div>
                                 <div className="card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '16px' }}>
                                     <BarChart2 size={24} color="var(--success-color)" style={{ marginBottom: '8px' }} />

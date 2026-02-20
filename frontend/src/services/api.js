@@ -85,15 +85,12 @@ export const getWorkout = async (type, week, user, split = "A") => {
         });
     }
 
-    // Group prev sets to find the best summary
-    const prevSummaryByExercise = {};
+    // Group prev sets 
+    const prevSetsByExercise = {};
     if (prevSets) {
         prevSets.forEach(s => {
-            // Because we ordered by weight descending globally, the first one we see 
-            // per exercise is the heaviest
-            if (!prevSummaryByExercise[s.exercise_id]) {
-                prevSummaryByExercise[s.exercise_id] = `${s.weight}kg x ${s.reps}`;
-            }
+            if (!prevSetsByExercise[s.exercise_id]) prevSetsByExercise[s.exercise_id] = [];
+            prevSetsByExercise[s.exercise_id].push(s);
         });
     }
 
@@ -101,7 +98,7 @@ export const getWorkout = async (type, week, user, split = "A") => {
         return {
             ...ex,
             sets: setsByExercise[ex.id] || [],
-            prev_week_summary: prevSummaryByExercise[ex.id] || null
+            prev_week_sets: prevSetsByExercise[ex.id] || []
         };
     });
     
@@ -280,7 +277,7 @@ export const startSession = async (user, workoutType, split = "A") => {
     return { success: true, session_id: data.id };
 };
 
-export const endSession = async (sessionId, user, notes = "") => {
+export const endSession = async (sessionId, user, notes = "", totalVolume = 0) => {
     const endTime = new Date();
     
     // 1. Fetch Session to get Start Time
@@ -291,14 +288,7 @@ export const endSession = async (sessionId, user, notes = "") => {
     const duration = Math.round((endTime - startTime) / 1000 / 60); // minutes
     
     // 2. Calculate Volume (Aggregation query)
-    // We need all sets created between start and end by this user?
-    // Or just "sets created today"?
-    // Backend logic was: sum weight * reps for sets in this session? 
-    // Wait, sets don't link to session_id in current schema.
-    // We'll calculate volume from sets logged "recently" or passing it from frontend?
-    // Backend implementation did: 
-    // sets = db.query(DBSetLog).filter(user, workout, week??) -> Logic was weak in backend too.
-    // Let's simplified: 0 volume for now or fetch sets from "today".
+    // Passed directly from frontend now to save complex DB joins
     
     const { error } = await supabase
         .from('workout_sessions')
@@ -315,7 +305,7 @@ export const endSession = async (sessionId, user, notes = "") => {
         success: true, 
         message: "Session ended", 
         duration_minutes: duration, 
-        total_volume: 0, 
+        total_volume: totalVolume, 
         prs: [] // parsing PRs requires complex history check, skipping for V1 migration
     };
 };

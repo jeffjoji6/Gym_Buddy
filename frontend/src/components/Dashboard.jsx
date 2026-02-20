@@ -88,10 +88,13 @@ export default function Dashboard() {
 
     return (
         <div className="animate-fade-in" style={{ paddingBottom: '80px' }}>
-            <div className="header" style={{ justifyContent: 'space-between' }}>
-                <Link to="/">
-                    <h2 style={{ margin: 0 }}>Dashboard</h2>
+            <div className="header" style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                <Link to="/" style={{ color: 'var(--text-color)', display: 'flex', alignItems: 'center' }}>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '8px' }}>
+                        <polyline points="15 18 9 12 15 6"></polyline>
+                    </svg>
                 </Link>
+                <h2 style={{ margin: 0 }}>Dashboard</h2>
             </div>
 
             {stats && (
