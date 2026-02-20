@@ -94,7 +94,7 @@ export const getWorkout = async (type, week, user, split = "A") => {
         });
     }
 
-    // 5. Fetch per-user setup notes
+    // 5. Fetch per-user setup notes from exercise_notes table
     const { data: userNotes } = await supabase
         .from('exercise_notes')
         .select('exercise_id, notes')
@@ -111,7 +111,7 @@ export const getWorkout = async (type, week, user, split = "A") => {
             ...ex,
             sets: setsByExercise[ex.id] || [],
             prev_week_sets: prevSetsByExercise[ex.id] || [],
-            setup_notes: notesByExercise[ex.id] || ''
+            setup_notes: notesByExercise[ex.id] ?? ex.setup_notes ?? ''
         };
     });
     

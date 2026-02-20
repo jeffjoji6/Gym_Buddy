@@ -86,7 +86,7 @@ export default function Home() {
             await deleteWorkout(workoutName);
 
             // Refresh list
-            const data = await getWorkouts();
+            const data = await getWorkouts(currentUser);
             const defaults = {
                 'Push': { icon: '💪', color: '#ff6b6b' },
                 'Pull': { icon: '🧗', color: '#4ecdc4' },

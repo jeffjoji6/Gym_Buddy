@@ -18,6 +18,11 @@ const ExerciseCard = React.memo(({ exercise, onLog, onUpdate, onDelete, onDelete
     const [justLogged, setJustLogged] = useState(false);
     const [savingNotes, setSavingNotes] = useState(false);
 
+    // Sync notes state when prop updates (e.g. after SWR cache replaced by fresh fetch)
+    useEffect(() => {
+        setNotes(exercise.setup_notes || '');
+    }, [exercise.setup_notes]);
+
     const handleLog = async () => {
         if (!weight || !reps) return;
         await onLog(exercise.id, weight, reps);
@@ -463,7 +468,16 @@ export default function WorkoutView() {
     };
 
     const handleDeleteExercise = async (exerciseId) => {
-        setExercises(prev => prev.filter(ex => ex.id !== exerciseId));
+        const newExercises = exercises.filter(ex => ex.id !== exerciseId);
+        setExercises(newExercises);
+
+        // Invalidate the SWR cache so deleted exercise doesn't reappear on next load
+        const cacheKey = `gym_buddy_cache_${type}_${split}_${week}_${user}`;
+        localStorage.setItem(cacheKey, JSON.stringify(newExercises));
+        // Also update the order cache
+        const newIds = newExercises.map(e => e.id);
+        localStorage.setItem(`gym_buddy_order_${type}_${split}`, JSON.stringify(newIds));
+
         await deleteExercise(exerciseId);
     };
 
@@ -579,9 +593,30 @@ export default function WorkoutView() {
                     </Link>
                     <div style={{ textAlign: 'center' }}>
                         <h2 style={{ margin: 0 }}>{type} Workout</h2>
-                        <div style={{ fontSize: '0.9rem', color: 'var(--text-dim)' }}>
-                            Split {split === 'A' ? '1' : '2'}
-                        </div>
+                        <select
+                            value={split}
+                            onChange={(e) => {
+                                const newSplit = e.target.value;
+                                setSearchParams(prev => {
+                                    prev.set('split', newSplit);
+                                    return prev;
+                                });
+                            }}
+                            style={{
+                                fontSize: '0.9rem',
+                                color: 'var(--text-dim)',
+                                background: 'var(--surface-highlight)',
+                                border: '1px solid var(--surface-highlight)',
+                                borderRadius: '6px',
+                                padding: '4px 8px',
+                                marginTop: '4px',
+                                cursor: 'pointer',
+                                outline: 'none'
+                            }}
+                        >
+                            <option value="A">Split 1</option>
+                            <option value="B">Split 2</option>
+                        </select>
                     </div>
 
                     {/* Timer / Start / Finish Button */}
