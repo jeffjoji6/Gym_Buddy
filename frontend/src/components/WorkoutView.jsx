@@ -60,7 +60,7 @@ const ExerciseCard = React.memo(({ exercise, onLog, onUpdate, onDelete, onDelete
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     {exercise.prev_week_sets && exercise.prev_week_sets.length > 0 && (
                         <span style={{ fontSize: '0.85rem', color: 'var(--text-dim)' }}>
-                            Last: {[...exercise.prev_week_sets].reverse().map(s => `${s.weight}kg x ${s.reps}`).join(', ')}
+                            Last: {exercise.prev_week_sets.map(s => `${s.weight}kg x ${s.reps}`).join(', ')}
                         </span>
                     )}
                     {onDeleteExercise && isEditing && (
