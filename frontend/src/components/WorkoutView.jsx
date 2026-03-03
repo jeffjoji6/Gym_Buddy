@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useSearchParams, Link } from 'react-router-dom';
-import { getWorkout, logSet, updateSet, deleteSet, startSession, endSession, updateExerciseNotes } from '../services/api';
+import { getWorkout, logSet, updateSet, deleteSet, deleteExercise, startSession, endSession, updateExerciseNotes } from '../services/api';
 import { ChevronLeft, ChevronDown, ChevronUp, Check, Trash2, Trophy, Clock, BarChart2 } from 'lucide-react';
 import { useUser } from '../context/UserContext';
 import EditSetModal from './EditSetModal';
@@ -43,8 +43,15 @@ const ExerciseCard = React.memo(({ exercise, onLog, onUpdate, onDelete, onDelete
         setEditingSet(null);
     };
 
+    const setsComplete = sets.length >= 3;
+
     return (
-        <div className={`card ${justLogged ? 'success-pulse' : ''}`} style={{ padding: '0.75rem', marginBottom: '0.5rem' }}>
+        <div className={`card ${justLogged ? 'success-pulse' : ''}`} style={{
+            padding: '0.75rem',
+            marginBottom: '0.5rem',
+            borderLeft: setsComplete ? '4px solid var(--success-color)' : 'none',
+            background: setsComplete ? 'rgba(3, 218, 198, 0.08)' : 'var(--surface-color)'
+        }}>
             <div
                 onClick={() => setExpanded(!expanded)}
                 style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', padding: '8px 0' }}
@@ -53,7 +60,7 @@ const ExerciseCard = React.memo(({ exercise, onLog, onUpdate, onDelete, onDelete
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     {exercise.prev_week_sets && exercise.prev_week_sets.length > 0 && (
                         <span style={{ fontSize: '0.85rem', color: 'var(--text-dim)' }}>
-                            Last: {exercise.prev_week_sets.map(s => `${s.weight}kg x ${s.reps}`).join(', ')}
+                            Last: {[...exercise.prev_week_sets].reverse().map(s => `${s.weight}kg x ${s.reps}`).join(', ')}
                         </span>
                     )}
                     {onDeleteExercise && isEditing && (
@@ -259,6 +266,7 @@ export default function WorkoutView() {
     const [isAddingExercise, setIsAddingExercise] = useState(false);
     const [showStartReminder, setShowStartReminder] = useState(false);
     const [draggedExId, setDraggedExId] = useState(null);
+    const [prToast, setPrToast] = useState(null);
 
     // Timer State
     const [startTime, setStartTime] = useState(null);
@@ -372,12 +380,28 @@ export default function WorkoutView() {
             return; // Don't log the set yet
         }
 
+        const newWeight = parseFloat(weight);
+        const exercise = exercises.find(e => e.id === exerciseId);
+
+        // PR Detection: compare against all known sets
+        if (exercise) {
+            const allPrevWeights = [
+                ...(exercise.sets || []).map(s => parseFloat(s.weight) || 0),
+                ...(exercise.prev_week_sets || []).map(s => parseFloat(s.weight) || 0)
+            ];
+            const prevMax = allPrevWeights.length > 0 ? Math.max(...allPrevWeights) : 0;
+            if (newWeight > prevMax && prevMax > 0) {
+                setPrToast({ name: exercise.name, weight: newWeight });
+                setTimeout(() => setPrToast(null), 3500);
+            }
+        }
+
         const optimisticSet = {
             id: Date.now(), // temp id
             exercise_id: exerciseId,
-            weight: parseFloat(weight),
+            weight: newWeight,
             reps: parseInt(reps),
-            set_number: exercises.find(e => e.id === exerciseId)?.sets?.length + 1 || 1
+            set_number: exercise?.sets?.length + 1 || 1
         };
 
         // Optimistic update
@@ -390,7 +414,7 @@ export default function WorkoutView() {
 
         const res = await logSet({
             exercise_id: exerciseId,
-            weight: parseFloat(weight),
+            weight: newWeight,
             reps: parseInt(reps),
             week: week,
             user: user
@@ -586,6 +610,33 @@ export default function WorkoutView() {
 
     return (
         <div className="animate-fade-in">
+            {/* PR Toast */}
+            {prToast && (
+                <div style={{
+                    position: 'fixed',
+                    top: '20px',
+                    left: '50%',
+                    transform: 'translateX(-50%)',
+                    zIndex: 9999,
+                    background: 'linear-gradient(135deg, #ffd700, #ff8c00)',
+                    color: '#000',
+                    padding: '16px 24px',
+                    borderRadius: '16px',
+                    boxShadow: '0 8px 32px rgba(255, 215, 0, 0.4)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px',
+                    animation: 'slideDown 0.4s ease-out',
+                    fontWeight: '700',
+                    fontSize: '1.1rem'
+                }}>
+                    <Trophy size={28} />
+                    <div>
+                        <div>🔥 NEW PR!</div>
+                        <div style={{ fontSize: '0.85rem', fontWeight: '500' }}>{prToast.name} — {prToast.weight}kg</div>
+                    </div>
+                </div>
+            )}
             <div className="header" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '12px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', width: '100%', justifyContent: 'space-between' }}>
                     <Link to="/">

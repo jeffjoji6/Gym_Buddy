@@ -74,7 +74,7 @@ export const getWorkout = async (type, week, user, split = "A") => {
         .in('exercise_id', exerciseIds)
         .eq('user_id', userId)
         .eq('week', week - 1)
-        .order('weight', { ascending: false });
+        .order('set_number', { ascending: true });
 
     // Group current sets
     const setsByExercise = {};
@@ -328,10 +328,20 @@ export const getDashboardStats = async (user) => {
         const userId = await getUserId(user);
         if (!userId) return { success: false };
 
+        // Get all workout names for mapping
+        const { data: allWorkouts } = await supabase
+            .from('workouts')
+            .select('id, name');
+        
+        const workoutNameMap = {};
+        if (allWorkouts) {
+            allWorkouts.forEach(w => { workoutNameMap[w.id] = w.name; });
+        }
+
         // Get recent workout sessions (last 30)
         const { data: sessions } = await supabase
             .from('workout_sessions')
-            .select('id, start_time, end_time, workout_id, workouts(name)')
+            .select('id, start_time, end_time, workout_id, duration_minutes')
             .eq('user_id', userId)
             .not('end_time', 'is', null)
             .order('start_time', { ascending: false })
@@ -348,7 +358,8 @@ export const getDashboardStats = async (user) => {
 
         const recentActivity = (sessions || []).slice(0, 10).map(s => ({
             date: s.start_time,
-            workout: s.workouts?.name || 'Workout',
+            workout: workoutNameMap[s.workout_id] || 'Workout',
+            duration: s.duration_minutes || 0,
             pr_count: 0,
             pr_details: null
         }));

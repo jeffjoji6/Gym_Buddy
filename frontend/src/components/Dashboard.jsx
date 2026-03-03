@@ -24,6 +24,11 @@ const RecentActivity = ({ activities }) => {
                             {new Date(a.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
                         </div>
                         <div style={{ fontWeight: 'bold', fontSize: '1.1rem' }}>{a.workout}</div>
+                        {a.duration > 0 && (
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)', marginTop: '2px' }}>
+                                {a.duration} min
+                            </div>
+                        )}
                     </div>
 
                     {a.pr_count > 0 && (
