@@ -338,14 +338,24 @@ export const getDashboardStats = async (user) => {
             allWorkouts.forEach(w => { workoutNameMap[w.id] = w.name; });
         }
 
-        // Get recent workout sessions (last 30)
-        const { data: sessions } = await supabase
+        // Get exercise names for PR details
+        const { data: allExercises } = await supabase
+            .from('exercises')
+            .select('id, name');
+        const exerciseNameMap = {};
+        if (allExercises) {
+            allExercises.forEach(e => { exerciseNameMap[e.id] = e.name; });
+        }
+
+        // Get ALL sessions for streak calculation
+        const { data: allSessions } = await supabase
             .from('workout_sessions')
             .select('id, start_time, end_time, workout_id, duration_minutes')
             .eq('user_id', userId)
             .not('end_time', 'is', null)
-            .order('start_time', { ascending: false })
-            .limit(30);
+            .order('start_time', { ascending: false });
+
+        const sessions = allSessions || [];
 
         // Workouts this week (Mon-Sun)
         const now = new Date();
@@ -354,12 +364,102 @@ export const getDashboardStats = async (user) => {
         monday.setDate(now.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
         monday.setHours(0, 0, 0, 0);
 
-        const workoutsThisWeek = (sessions || []).filter(s => new Date(s.start_time) >= monday).length;
+        const sessionsThisWeek = sessions.filter(s => new Date(s.start_time) >= monday);
+        const workoutsThisWeek = sessionsThisWeek.length;
 
-        const recentActivity = (sessions || []).slice(0, 10).map(s => ({
+        // Weekly heatmap (Mon=0 ... Sun=6)
+        const weeklyHeatmap = [0, 0, 0, 0, 0, 0, 0];
+        sessionsThisWeek.forEach(s => {
+            const d = new Date(s.start_time).getDay();
+            const idx = d === 0 ? 6 : d - 1;
+            weeklyHeatmap[idx]++;
+        });
+
+        // Streak
+        let streak = 0;
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const checkDate = new Date(today);
+        const todayEnd = new Date(today);
+        todayEnd.setHours(23, 59, 59, 999);
+        const hasToday = sessions.some(s => {
+            const d = new Date(s.start_time);
+            return d >= today && d <= todayEnd;
+        });
+        if (!hasToday) checkDate.setDate(checkDate.getDate() - 1);
+        for (let i = 0; i < 365; i++) {
+            const dayStart = new Date(checkDate);
+            dayStart.setHours(0, 0, 0, 0);
+            const dayEnd = new Date(checkDate);
+            dayEnd.setHours(23, 59, 59, 999);
+            if (sessions.some(s => { const d = new Date(s.start_time); return d >= dayStart && d <= dayEnd; })) {
+                streak++;
+                checkDate.setDate(checkDate.getDate() - 1);
+            } else break;
+        }
+
+        // Get ALL sets for this user (for volume + PRs)
+        const { data: allSets } = await supabase
+            .from('sets')
+            .select('exercise_id, weight, reps, week, timestamp')
+            .eq('user_id', userId);
+
+        const sets = allSets || [];
+
+        // Total volume this week (FIXED: use 'timestamp' not 'created_at')
+        let totalVolumeThisWeek = 0;
+        sets.forEach(s => {
+            if (s.timestamp && new Date(s.timestamp) >= monday) {
+                totalVolumeThisWeek += (parseFloat(s.weight) || 0) * (parseInt(s.reps) || 0);
+            }
+        });
+
+        // Current week number (from URL context — approximate using the latest week in sets)
+        // For PRs: compare each exercise's max this week vs all-time previous max
+        const currentWeek = (() => {
+            const weekNums = sets.map(s => s.week).filter(w => w != null);
+            return weekNums.length > 0 ? Math.max(...weekNums) : 1;
+        })();
+
+        // Group sets by exercise
+        const setsByExercise = {};
+        sets.forEach(s => {
+            if (!setsByExercise[s.exercise_id]) setsByExercise[s.exercise_id] = [];
+            setsByExercise[s.exercise_id].push(s);
+        });
+
+        // Compute PRs this week
+        let prsThisWeek = 0;
+        const prDetailsList = [];
+        Object.entries(setsByExercise).forEach(([exId, exSets]) => {
+            const thisWeekSets = exSets.filter(s => s.week === currentWeek);
+            const prevWeekSets = exSets.filter(s => s.week < currentWeek);
+            
+            if (thisWeekSets.length === 0 || prevWeekSets.length === 0) return;
+            
+            const thisWeekMax = Math.max(...thisWeekSets.map(s => parseFloat(s.weight) || 0));
+            const prevMax = Math.max(...prevWeekSets.map(s => parseFloat(s.weight) || 0));
+            
+            if (thisWeekMax > prevMax) {
+                prsThisWeek++;
+                const name = exerciseNameMap[parseInt(exId)] || 'Exercise';
+                prDetailsList.push(`${name}: ${thisWeekMax}kg`);
+            }
+        });
+        // Filter sessions: only include workouts >= 15 min, compute real duration
+        const validSessions = sessions
+            .map(s => {
+                const start = new Date(s.start_time);
+                const end = new Date(s.end_time);
+                const realDurationMin = Math.round((end - start) / 60000);
+                return { ...s, realDuration: realDurationMin };
+            })
+            .filter(s => s.realDuration >= 15);
+
+        const recentActivity = validSessions.slice(0, 10).map(s => ({
             date: s.start_time,
             workout: workoutNameMap[s.workout_id] || 'Workout',
-            duration: s.duration_minutes || 0,
+            duration: Math.min(s.realDuration, 180), // Cap at 3 hours
             pr_count: 0,
             pr_details: null
         }));
@@ -368,12 +468,74 @@ export const getDashboardStats = async (user) => {
             success: true,
             data: {
                 workouts_this_week: workoutsThisWeek,
-                prs_this_week: 0,
+                total_volume_this_week: totalVolumeThisWeek,
+                streak,
+                total_sessions: sessions.length,
+                weekly_heatmap: weeklyHeatmap,
+                prs_this_week: prsThisWeek,
+                pr_details_list: prDetailsList,
                 recent_activity: recentActivity
             }
         };
     } catch(e) {
         console.error('getDashboardStats error', e);
+        return { success: false };
+    }
+};
+
+// Progress graph data: max weight per week per exercise
+export const getProgressData = async (user) => {
+    try {
+        const userId = await getUserId(user);
+        if (!userId) return { success: false };
+
+        const { data: allSets } = await supabase
+            .from('sets')
+            .select('exercise_id, weight, week')
+            .eq('user_id', userId);
+
+        const { data: allExercises } = await supabase
+            .from('exercises')
+            .select('id, name');
+
+        const exerciseNameMap = {};
+        if (allExercises) {
+            allExercises.forEach(e => { exerciseNameMap[e.id] = e.name; });
+        }
+
+        // Group by exercise -> week -> max weight
+        const progressMap = {}; // { exerciseId: { week: maxWeight } }
+        const exercisesWithData = new Set();
+
+        (allSets || []).forEach(s => {
+            const exId = s.exercise_id;
+            const w = s.weight ? parseFloat(s.weight) : 0;
+            if (!progressMap[exId]) progressMap[exId] = {};
+            if (!progressMap[exId][s.week] || w > progressMap[exId][s.week]) {
+                progressMap[exId][s.week] = w;
+            }
+            exercisesWithData.add(exId);
+        });
+
+        // Build exercise list with names
+        const exerciseList = Array.from(exercisesWithData).map(id => ({
+            id: parseInt(id),
+            name: exerciseNameMap[parseInt(id)] || `Exercise ${id}`
+        })).sort((a, b) => a.name.localeCompare(b.name));
+
+        // Build progress series for each exercise
+        const progressSeries = {};
+        Object.entries(progressMap).forEach(([exId, weekData]) => {
+            const weeks = Object.keys(weekData).map(Number).sort((a, b) => a - b);
+            progressSeries[exId] = weeks.map(w => ({ week: w, maxWeight: weekData[w] }));
+        });
+
+        return {
+            success: true,
+            data: { exerciseList, progressSeries }
+        };
+    } catch (e) {
+        console.error('getProgressData error', e);
         return { success: false };
     }
 };
@@ -390,6 +552,31 @@ export const updateExerciseNotes = async (exerciseId, setupNotes, user) => {
         );
         
     return { success: !error, message: error ? error.message : "Updated" };
+};
+
+export const getUserProfile = async (user) => {
+    const userId = await getUserId(user);
+    if (!userId) return null;
+    
+    const { data } = await supabase
+        .from('users')
+        .select('height_cm, weight_kg, age, gender')
+        .eq('id', userId)
+        .single();
+    
+    return data;
+};
+
+export const updateUserProfile = async (user, profileData) => {
+    const userId = await getUserId(user);
+    if (!userId) return { success: false };
+    
+    const { error } = await supabase
+        .from('users')
+        .update(profileData)
+        .eq('id', userId);
+    
+    return { success: !error, message: error ? error.message : 'Updated' };
 };
 
 export const healthCheck = async () => {

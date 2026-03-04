@@ -1,8 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useSearchParams, Link } from 'react-router-dom';
 import { getWorkout, logSet, updateSet, deleteSet, deleteExercise, startSession, endSession, updateExerciseNotes } from '../services/api';
 import { ChevronLeft, ChevronDown, ChevronUp, Check, Trash2, Trophy, Clock, BarChart2 } from 'lucide-react';
 import { useUser } from '../context/UserContext';
+import { useNotifications } from '../context/NotificationContext';
 import EditSetModal from './EditSetModal';
 import { useNavigate } from 'react-router-dom';
 
@@ -25,6 +26,7 @@ const ExerciseCard = React.memo(({ exercise, onLog, onUpdate, onDelete, onDelete
 
     const handleLog = async () => {
         if (!weight || !reps) return;
+        if (navigator.vibrate) navigator.vibrate(20);
         await onLog(exercise.id, weight, reps);
         setReps('');
 
@@ -53,21 +55,20 @@ const ExerciseCard = React.memo(({ exercise, onLog, onUpdate, onDelete, onDelete
             background: setsComplete ? 'rgba(3, 218, 198, 0.08)' : 'var(--surface-color)'
         }}>
             <div
-                onClick={() => setExpanded(!expanded)}
-                style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', padding: '8px 0' }}
+                onClick={() => {
+                    setExpanded(!expanded);
+                    if (navigator.vibrate) navigator.vibrate(10);
+                }}
+                style={{ cursor: 'pointer', padding: '8px 0' }}
             >
-                <span style={{ fontWeight: '600', fontSize: '1.2rem' }}>{exercise.name}</span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    {exercise.prev_week_sets && exercise.prev_week_sets.length > 0 && (
-                        <span style={{ fontSize: '0.85rem', color: 'var(--text-dim)' }}>
-                            Last: {exercise.prev_week_sets.map(s => `${s.weight}kg x ${s.reps}`).join(', ')}
-                        </span>
-                    )}
-                    {onDeleteExercise && isEditing && (
-                        <>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontWeight: '600', fontSize: '1.15rem' }}>{exercise.name}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        {onDeleteExercise && isEditing && (
                             <button
                                 onClick={(e) => {
                                     e.stopPropagation();
+                                    if (navigator.vibrate) navigator.vibrate(30);
                                     if (window.confirm(`Delete exercise "${exercise.name}"?`)) {
                                         onDeleteExercise(exercise.id);
                                     }
@@ -84,13 +85,34 @@ const ExerciseCard = React.memo(({ exercise, onLog, onUpdate, onDelete, onDelete
                             >
                                 <Trash2 size={18} />
                             </button>
-                        </>
-                    )}
-                    <ChevronDown
-                        size={24}
-                        style={{ transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}
-                    />
+                        )}
+                        <ChevronDown
+                            size={22}
+                            color="var(--text-dim)"
+                            style={{ transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}
+                        />
+                    </div>
                 </div>
+                {/* Last week set pills */}
+                {exercise.prev_week_sets && exercise.prev_week_sets.length > 0 && (
+                    <div style={{ display: 'flex', gap: '6px', marginTop: '8px', flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: '0.7rem', color: 'var(--text-dim)', alignSelf: 'center', fontWeight: '500' }}>Last</span>
+                        {exercise.prev_week_sets.map((s, idx) => (
+                            <div key={idx} style={{
+                                padding: '3px 10px',
+                                borderRadius: '12px',
+                                background: 'rgba(187, 134, 252, 0.1)',
+                                border: '1px solid rgba(187, 134, 252, 0.2)',
+                                fontSize: '0.78rem',
+                                color: 'var(--primary-color)',
+                                fontWeight: '600',
+                                whiteSpace: 'nowrap'
+                            }}>
+                                {s.weight}kg × {s.reps}
+                            </div>
+                        ))}
+                    </div>
+                )}
             </div>
 
             {expanded && (
@@ -247,6 +269,7 @@ export default function WorkoutView() {
     const week = parseInt(searchParams.get('week') || '1');
     const split = searchParams.get('split') || 'A';
     const { user } = useUser();
+    const { addNotification } = useNotifications();
     const navigate = useNavigate();
 
     const [exercises, setExercises] = useState([]);
@@ -267,6 +290,8 @@ export default function WorkoutView() {
     const [showStartReminder, setShowStartReminder] = useState(false);
     const [draggedExId, setDraggedExId] = useState(null);
     const [prToast, setPrToast] = useState(null);
+    const [showAutoEnd, setShowAutoEnd] = useState(false);
+    const hasAutoPrompted = useRef(false);
 
     // Timer State
     const [startTime, setStartTime] = useState(null);
@@ -373,6 +398,17 @@ export default function WorkoutView() {
         return () => clearInterval(interval);
     }, [startTime, showSummary]);
 
+    // Auto-end detection: when all exercises have >= 3 sets
+    useEffect(() => {
+        if (!startTime || !sessionId || exercises.length === 0 || hasAutoPrompted.current) return;
+        const allDone = exercises.every(ex => (ex.sets || []).length >= 3);
+        if (allDone) {
+            hasAutoPrompted.current = true;
+            setShowAutoEnd(true);
+            if (navigator.vibrate) navigator.vibrate(200);
+        }
+    }, [exercises, startTime, sessionId]);
+
     const handleLogSet = async (exerciseId, weight, reps) => {
         // Remind user to start workout if they haven't
         if (!startTime) {
@@ -392,6 +428,10 @@ export default function WorkoutView() {
             const prevMax = allPrevWeights.length > 0 ? Math.max(...allPrevWeights) : 0;
             if (newWeight > prevMax && prevMax > 0) {
                 setPrToast({ name: exercise.name, weight: newWeight });
+                // Haptic feedback
+                if (navigator.vibrate) navigator.vibrate([100, 50, 100, 50, 200]);
+                // Push notification
+                addNotification('pr', '🏆 New PR!', `${exercise.name} — ${newWeight}kg`, '🏆');
                 setTimeout(() => setPrToast(null), 3500);
             }
         }
@@ -610,97 +650,119 @@ export default function WorkoutView() {
 
     return (
         <div className="animate-fade-in">
-            {/* PR Toast */}
+            {/* PR Blast Overlay */}
             {prToast && (
-                <div style={{
-                    position: 'fixed',
-                    top: '20px',
-                    left: '50%',
-                    transform: 'translateX(-50%)',
-                    zIndex: 9999,
-                    background: 'linear-gradient(135deg, #ffd700, #ff8c00)',
-                    color: '#000',
-                    padding: '16px 24px',
-                    borderRadius: '16px',
-                    boxShadow: '0 8px 32px rgba(255, 215, 0, 0.4)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '12px',
-                    animation: 'slideDown 0.4s ease-out',
-                    fontWeight: '700',
-                    fontSize: '1.1rem'
-                }}>
-                    <Trophy size={28} />
-                    <div>
-                        <div>🔥 NEW PR!</div>
-                        <div style={{ fontSize: '0.85rem', fontWeight: '500' }}>{prToast.name} — {prToast.weight}kg</div>
+                <div className="pr-blast-overlay" onClick={() => setPrToast(null)}>
+                    {/* Confetti particles */}
+                    {[...Array(20)].map((_, i) => (
+                        <div
+                            key={i}
+                            className="confetti-particle"
+                            style={{
+                                left: `${Math.random() * 100}%`,
+                                animationDelay: `${Math.random() * 0.5}s`,
+                                animationDuration: `${1.5 + Math.random() * 2}s`,
+                                background: ['#ffd700', '#ff6b6b', '#03dac6', '#bb86fc', '#ff8c00', '#4ecdc4'][i % 6],
+                                width: `${8 + Math.random() * 8}px`,
+                                height: `${8 + Math.random() * 8}px`,
+                                borderRadius: Math.random() > 0.5 ? '50%' : '2px'
+                            }}
+                        />
+                    ))}
+                    <div className="pr-blast-content">
+                        <div className="pr-blast-trophy">🏆</div>
+                        <div className="pr-blast-fire">🔥🔥🔥</div>
+                        <h1 className="pr-blast-title">NEW PR!</h1>
+                        <div className="pr-blast-details">
+                            {prToast.name}
+                        </div>
+                        <div className="pr-blast-weight">
+                            {prToast.weight} kg
+                        </div>
+                        <div style={{ fontSize: '0.9rem', color: 'rgba(255,255,255,0.6)', marginTop: '12px' }}>Tap to dismiss</div>
                     </div>
                 </div>
             )}
-            <div className="header" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '12px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', width: '100%', justifyContent: 'space-between' }}>
-                    <Link to="/">
-                        <ChevronLeft size={32} />
+            <div style={{ marginBottom: '16px' }}>
+                {/* Top row: back + title + action */}
+                <div style={{ display: 'flex', alignItems: 'center', width: '100%', justifyContent: 'space-between', marginBottom: '12px' }}>
+                    <Link to="/" style={{ color: 'var(--text-color)', display: 'flex' }}>
+                        <ChevronLeft size={28} />
                     </Link>
-                    <div style={{ textAlign: 'center' }}>
-                        <h2 style={{ margin: 0 }}>{type} Workout</h2>
-                        <select
-                            value={split}
-                            onChange={(e) => {
-                                const newSplit = e.target.value;
-                                setSearchParams(prev => {
-                                    prev.set('split', newSplit);
-                                    return prev;
-                                });
-                            }}
-                            style={{
-                                fontSize: '0.9rem',
-                                color: 'var(--text-dim)',
-                                background: 'var(--surface-highlight)',
-                                border: '1px solid var(--surface-highlight)',
-                                borderRadius: '6px',
-                                padding: '4px 8px',
-                                marginTop: '4px',
-                                cursor: 'pointer',
-                                outline: 'none'
-                            }}
-                        >
-                            <option value="A">Split 1</option>
-                            <option value="B">Split 2</option>
-                        </select>
+                    <div style={{ textAlign: 'center', flex: 1 }}>
+                        <h2 style={{ margin: 0, fontSize: '1.3rem', letterSpacing: '0.5px' }}>{type}</h2>
                     </div>
-
-                    {/* Timer / Start / Finish Button */}
                     {!startTime ? (
                         <button
-                            className="button-primary"
-                            onClick={handleStartWorkout}
+                            onClick={() => {
+                                if (navigator.vibrate) navigator.vibrate(50);
+                                handleStartWorkout();
+                            }}
                             style={{
-                                padding: '8px 16px',
+                                padding: '10px 20px',
                                 fontSize: '0.9rem',
+                                fontWeight: '700',
                                 background: 'var(--success-color)',
-                                boxShadow: '0 2px 8px rgba(0,0,0,0.2)'
+                                color: '#000',
+                                border: 'none',
+                                borderRadius: '12px',
+                                cursor: 'pointer',
+                                boxShadow: '0 4px 15px rgba(3, 218, 198, 0.3)'
                             }}
                         >
-                            Start
+                            ▶ Start
                         </button>
                     ) : (
                         <button
-                            className="button-danger"
-                            onClick={handleFinishWorkout}
+                            onClick={() => {
+                                if (navigator.vibrate) navigator.vibrate([30, 20, 30]);
+                                handleFinishWorkout();
+                            }}
                             disabled={finishing}
                             style={{
-                                padding: '8px 16px',
+                                padding: '10px 16px',
                                 fontSize: '0.9rem',
+                                fontWeight: '700',
                                 display: 'flex',
                                 alignItems: 'center',
                                 gap: '6px',
-                                boxShadow: '0 2px 8px rgba(0,0,0,0.2)'
+                                background: 'rgba(207, 102, 121, 0.15)',
+                                color: 'var(--error-color)',
+                                border: '1px solid rgba(207, 102, 121, 0.3)',
+                                borderRadius: '12px',
+                                cursor: 'pointer'
                             }}
                         >
-                            {formatTime(duration)} <Check size={16} />
+                            <Clock size={14} /> {formatTime(duration)}
                         </button>
                     )}
+                </div>
+
+                {/* Split toggle */}
+                <div style={{ display: 'flex', gap: '0', marginBottom: '12px', background: 'var(--surface-highlight)', borderRadius: '10px', padding: '3px' }}>
+                    {['A', 'B'].map(s => (
+                        <button
+                            key={s}
+                            onClick={() => {
+                                if (navigator.vibrate) navigator.vibrate(10);
+                                setSearchParams(prev => { prev.set('split', s); return prev; });
+                            }}
+                            style={{
+                                flex: 1,
+                                padding: '8px',
+                                borderRadius: '8px',
+                                border: 'none',
+                                background: split === s ? 'var(--primary-color)' : 'transparent',
+                                color: split === s ? '#000' : 'var(--text-dim)',
+                                fontWeight: '600',
+                                fontSize: '0.85rem',
+                                cursor: 'pointer',
+                                transition: 'all 0.2s'
+                            }}
+                        >
+                            Split {s === 'A' ? '1' : '2'}
+                        </button>
+                    ))}
                 </div>
 
                 {/* Horizontal Week Selector */}
@@ -718,7 +780,10 @@ export default function WorkoutView() {
                         <div
                             key={w}
                             id={`week-${w}`}
-                            onClick={() => setSearchParams({ week: w })}
+                            onClick={() => {
+                                if (navigator.vibrate) navigator.vibrate(10);
+                                setSearchParams({ week: w });
+                            }}
                             style={{
                                 padding: '8px 16px',
                                 borderRadius: '20px',
@@ -956,6 +1021,51 @@ export default function WorkoutView() {
                                 Start Now
                             </button>
                         </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Auto-End Banner */}
+            {showAutoEnd && (
+                <div className="auto-end-banner">
+                    <div>
+                        <div style={{ fontWeight: '700', fontSize: '1.1rem' }}>🎉 All exercises done!</div>
+                        <div style={{ fontSize: '0.85rem', opacity: 0.8 }}>Ready to finish your workout?</div>
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                        <button
+                            onClick={() => setShowAutoEnd(false)}
+                            style={{
+                                background: 'rgba(0,0,0,0.2)',
+                                color: '#000',
+                                border: 'none',
+                                borderRadius: '8px',
+                                padding: '8px 14px',
+                                fontWeight: '600',
+                                fontSize: '0.85rem',
+                                cursor: 'pointer'
+                            }}
+                        >
+                            Keep Going
+                        </button>
+                        <button
+                            onClick={() => {
+                                setShowAutoEnd(false);
+                                handleFinishWorkout();
+                            }}
+                            style={{
+                                background: '#000',
+                                color: 'var(--success-color)',
+                                border: 'none',
+                                borderRadius: '8px',
+                                padding: '8px 14px',
+                                fontWeight: '700',
+                                fontSize: '0.85rem',
+                                cursor: 'pointer'
+                            }}
+                        >
+                            Finish Workout
+                        </button>
                     </div>
                 </div>
             )}
