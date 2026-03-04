@@ -347,15 +347,44 @@ export const getDashboardStats = async (user) => {
             allExercises.forEach(e => { exerciseNameMap[e.id] = e.name; });
         }
 
-        // Get ALL sessions for streak calculation
+        // Get ALL sessions — INCLUDING ones where user forgot to end (end_time = null)
         const { data: allSessions } = await supabase
             .from('workout_sessions')
             .select('id, start_time, end_time, workout_id, duration_minutes')
             .eq('user_id', userId)
-            .not('end_time', 'is', null)
             .order('start_time', { ascending: false });
 
-        const sessions = allSessions || [];
+        let sessions = allSessions || [];
+
+        // Compute real duration; for sessions with no end_time, treat them as valid (duration 0 shown)
+        // Filter out pure misclicks — only when we CAN compute duration and it's < 2 min
+        sessions = sessions.map(s => {
+            if (!s.end_time) {
+                return { ...s, realDuration: 0 }; // valid session, duration unknown
+            }
+            const rawDur = Math.round((new Date(s.end_time) - new Date(s.start_time)) / 60000);
+            return { ...s, realDuration: Math.min(rawDur, 180) }; // Cap display at 3 hours
+        }).filter(s => {
+            // Drop misclicks: only if we have an end_time AND it's under 2 minutes
+            if (s.end_time) {
+                const rawDur = Math.round((new Date(s.end_time) - new Date(s.start_time)) / 60000);
+                return rawDur >= 2;
+            }
+            return true; // Keep all sessions with no end_time
+        });
+
+        // Calculate dynamic Active Week based on first session
+        let calculatedActiveWeek = 1;
+        if (sessions.length > 0) {
+            // sessions is ordered descending by start_time, so last item is the first session ever
+            const firstSession = sessions[sessions.length - 1];
+            const firstDate = new Date(firstSession.start_time);
+            firstDate.setHours(0, 0, 0, 0); // Normalize to start of day
+            const now = new Date();
+            const diffTime = Math.abs(now - firstDate);
+            const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+            calculatedActiveWeek = Math.floor(diffDays / 7) + 1;
+        }
 
         // Workouts this week (Mon-Sun)
         const now = new Date();
@@ -446,20 +475,10 @@ export const getDashboardStats = async (user) => {
                 prDetailsList.push(`${name}: ${thisWeekMax}kg`);
             }
         });
-        // Filter sessions: only include workouts >= 15 min, compute real duration
-        const validSessions = sessions
-            .map(s => {
-                const start = new Date(s.start_time);
-                const end = new Date(s.end_time);
-                const realDurationMin = Math.round((end - start) / 60000);
-                return { ...s, realDuration: realDurationMin };
-            })
-            .filter(s => s.realDuration >= 15);
-
-        const recentActivity = validSessions.slice(0, 10).map(s => ({
+        const recentActivity = sessions.slice(0, 10).map(s => ({
             date: s.start_time,
             workout: workoutNameMap[s.workout_id] || 'Workout',
-            duration: Math.min(s.realDuration, 180), // Cap at 3 hours
+            duration: s.realDuration,
             pr_count: 0,
             pr_details: null
         }));
@@ -467,6 +486,7 @@ export const getDashboardStats = async (user) => {
         return {
             success: true,
             data: {
+                calculated_active_week: calculatedActiveWeek,
                 workouts_this_week: workoutsThisWeek,
                 total_volume_this_week: totalVolumeThisWeek,
                 streak,
