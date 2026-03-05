@@ -751,31 +751,39 @@ export default function WorkoutView() {
                     )}
                 </div>
 
-                {/* Split toggle */}
+                {/* Split toggle — locked while a session is running */}
                 <div style={{ display: 'flex', gap: '0', marginBottom: '12px', background: 'var(--surface-highlight)', borderRadius: '10px', padding: '3px' }}>
-                    {['A', 'B'].map(s => (
-                        <button
-                            key={s}
-                            onClick={() => {
-                                if (navigator.vibrate) navigator.vibrate(10);
-                                setSearchParams(prev => { prev.set('split', s); return prev; });
-                            }}
-                            style={{
-                                flex: 1,
-                                padding: '8px',
-                                borderRadius: '8px',
-                                border: 'none',
-                                background: split === s ? 'var(--primary-color)' : 'transparent',
-                                color: split === s ? '#000' : 'var(--text-dim)',
-                                fontWeight: '600',
-                                fontSize: '0.85rem',
-                                cursor: 'pointer',
-                                transition: 'all 0.2s'
-                            }}
-                        >
-                            Split {s === 'A' ? '1' : '2'}
-                        </button>
-                    ))}
+                    {['A', 'B'].map(s => {
+                        const isActive = split === s;
+                        const isLocked = !!startTime && !isActive; // Lock inactive tab when session running
+                        return (
+                            <button
+                                key={s}
+                                disabled={isLocked}
+                                onClick={() => {
+                                    if (isLocked) return;
+                                    if (navigator.vibrate) navigator.vibrate(10);
+                                    setSearchParams(prev => { prev.set('split', s); return prev; });
+                                }}
+                                title={isLocked ? 'Cannot switch split during an active workout' : ''}
+                                style={{
+                                    flex: 1,
+                                    padding: '8px',
+                                    borderRadius: '8px',
+                                    border: 'none',
+                                    background: isActive ? 'var(--primary-color)' : 'transparent',
+                                    color: isActive ? '#000' : isLocked ? 'rgba(255,255,255,0.2)' : 'var(--text-dim)',
+                                    fontWeight: '600',
+                                    fontSize: '0.85rem',
+                                    cursor: isLocked ? 'not-allowed' : 'pointer',
+                                    transition: 'all 0.2s',
+                                    opacity: isLocked ? 0.4 : 1
+                                }}
+                            >
+                                Split {s === 'A' ? '1' : '2'} {isLocked ? '🔒' : ''}
+                            </button>
+                        );
+                    })}
                 </div>
 
                 {/* Horizontal Week Selector */}

@@ -10,11 +10,6 @@ export default function Home() {
     const [showCreate, setShowCreate] = useState(false);
     const [newWorkoutName, setNewWorkoutName] = useState('');
     const [workouts, setWorkouts] = useState([]);
-
-    // Split selection state
-    const [showSplitSelect, setShowSplitSelect] = useState(false);
-    const [selectedWorkout, setSelectedWorkout] = useState(null);
-
     const [isEditing, setIsEditing] = useState(false);
 
     React.useEffect(() => {
@@ -69,16 +64,8 @@ export default function Home() {
     };
 
     const handleWorkoutClick = (workout) => {
-        setSelectedWorkout(workout);
-        setShowSplitSelect(true);
-    };
-
-    const handleSplitSelect = (split) => {
-        if (selectedWorkout) {
-            navigate(`/workout/${selectedWorkout.type}?week=${activeWeek}&split=${split}`);
-            setShowSplitSelect(false);
-            setSelectedWorkout(null);
-        }
+        // Go directly to Split A — no popup needed
+        navigate(`/workout/${workout.type}?week=${activeWeek}&split=A`);
     };
     const handleDeleteWorkout = async (workoutName) => {
         if (window.confirm(`Are you sure you want to delete the "${workoutName}" workout?`)) {
@@ -225,36 +212,6 @@ export default function Home() {
                 </div>
             )}
 
-            {showSplitSelect && selectedWorkout && (
-                <div className="modal-overlay" onClick={() => setShowSplitSelect(false)}>
-                    <div className="modal-content animate-slide-up" onClick={e => e.stopPropagation()}>
-                        <h3>Select Split for {selectedWorkout.type}</h3>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                            <button
-                                className="button-primary"
-                                onClick={() => handleSplitSelect('A')}
-                                style={{ padding: '1.5rem', fontSize: '1.2rem' }}
-                            >
-                                Split 1 (A)
-                            </button>
-                            <button
-                                className="button-secondary"
-                                onClick={() => handleSplitSelect('B')}
-                                style={{ padding: '1.5rem', fontSize: '1.2rem', borderColor: 'var(--primary-color)' }}
-                            >
-                                Split 2 (B)
-                            </button>
-                        </div>
-                        <button
-                            className="button-secondary"
-                            onClick={() => setShowSplitSelect(false)}
-                            style={{ marginTop: '1rem', width: '100%' }}
-                        >
-                            Cancel
-                        </button>
-                    </div>
-                </div>
-            )}
         </div>
     );
 }

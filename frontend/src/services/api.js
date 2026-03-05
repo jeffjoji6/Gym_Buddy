@@ -645,3 +645,37 @@ export const getCompletedWeeks = async (user, workoutType) => {
         return new Set();
     }
 };
+
+// Auto-end any open sessions older than 3 hours so they don't pollute stats
+export const autoEndStaleSessions = async (user) => {
+    try {
+        const userId = await getUserId(user);
+        if (!userId) return;
+
+        const THREE_HOURS_MS = 3 * 60 * 60 * 1000;
+        const cutoff = new Date(Date.now() - THREE_HOURS_MS).toISOString();
+
+        // Find sessions with no end_time that started more than 3 hours ago
+        const { data: staleSessions } = await supabase
+            .from('workout_sessions')
+            .select('id, start_time')
+            .eq('user_id', userId)
+            .is('end_time', null)
+            .lt('start_time', cutoff);
+
+        if (!staleSessions || staleSessions.length === 0) return;
+
+        // End each stale session at start_time + 3 hours (makes the duration look like 3h max)
+        for (const session of staleSessions) {
+            const autoEndTime = new Date(new Date(session.start_time).getTime() + THREE_HOURS_MS).toISOString();
+            await supabase
+                .from('workout_sessions')
+                .update({ end_time: autoEndTime, duration_minutes: 180, notes: '[Auto-ended: timer left running]' })
+                .eq('id', session.id);
+        }
+
+        console.log(`Auto-ended ${staleSessions.length} stale session(s)`);
+    } catch (e) {
+        console.error('autoEndStaleSessions error', e);
+    }
+};

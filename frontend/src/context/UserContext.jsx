@@ -25,6 +25,14 @@ export function UserProvider({ children }) {
         }
     }, [user]);
 
+    // Silently auto-end any sessions left open > 3 hours on app load
+    useEffect(() => {
+        if (!user) return;
+        import('../services/api').then(({ autoEndStaleSessions }) => {
+            autoEndStaleSessions(user);
+        });
+    }, [user]);
+
     // Expose a safe fallback for the UI while loading
     const displayWeek = activeWeek || 1;
 
