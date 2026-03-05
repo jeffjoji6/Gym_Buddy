@@ -5,6 +5,7 @@ import Login from './components/Login';
 import InstallPrompt from './components/InstallPrompt';
 import { UserProvider, useUser } from './context/UserContext';
 import { NotificationProvider } from './context/NotificationContext';
+import { ActiveSessionProvider } from './context/ActiveSessionContext';
 
 const Home = lazy(() => import('./components/Home'));
 const WorkoutView = lazy(() => import('./components/WorkoutView'));
@@ -17,20 +18,22 @@ function AuthenticatedRoutes() {
     if (!user) return <Login />;
 
     return (
-        <NotificationProvider user={user}>
-            <Layout>
-                <Suspense fallback={<div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-dim)' }}>Loading...</div>}>
-                    <Routes>
-                        <Route path="/" element={<Home />} />
-                        <Route path="/workout/:type" element={<WorkoutView />} />
-                        <Route path="/dashboard" element={<Dashboard />} />
-                        <Route path="/profile" element={<Profile />} />
-                        <Route path="*" element={<Navigate to="/" />} />
-                    </Routes>
-                </Suspense>
-                <InstallPrompt />
-            </Layout>
-        </NotificationProvider>
+        <ActiveSessionProvider>
+            <NotificationProvider user={user}>
+                <Layout>
+                    <Suspense fallback={<div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-dim)' }}>Loading...</div>}>
+                        <Routes>
+                            <Route path="/" element={<Home />} />
+                            <Route path="/workout/:type" element={<WorkoutView />} />
+                            <Route path="/dashboard" element={<Dashboard />} />
+                            <Route path="/profile" element={<Profile />} />
+                            <Route path="*" element={<Navigate to="/" />} />
+                        </Routes>
+                    </Suspense>
+                    <InstallPrompt />
+                </Layout>
+            </NotificationProvider>
+        </ActiveSessionProvider>
     );
 }
 

@@ -605,3 +605,43 @@ export const healthCheck = async () => {
     if (error) return { status: "error" };
     return { status: "ok" };
 };
+
+// Returns a Set of week numbers where the user has logged sets for a given workout type
+export const getCompletedWeeks = async (user, workoutType) => {
+    try {
+        const userId = await getUserId(user);
+        if (!userId) return new Set();
+
+        // Get workout_id for this workout type
+        const { data: workoutData } = await supabase
+            .from('workouts')
+            .select('id')
+            .eq('name', workoutType)
+            .limit(1)
+            .single();
+        if (!workoutData) return new Set();
+
+        // Get all exercises for this workout
+        const { data: exercises } = await supabase
+            .from('exercises')
+            .select('id')
+            .eq('workout_id', workoutData.id);
+        if (!exercises || exercises.length === 0) return new Set();
+
+        const exerciseIds = exercises.map(e => e.id);
+
+        // Get distinct weeks with sets
+        const { data: sets } = await supabase
+            .from('sets')
+            .select('week')
+            .eq('user_id', userId)
+            .in('exercise_id', exerciseIds)
+            .not('week', 'is', null);
+
+        const completedWeeks = new Set((sets || []).map(s => s.week));
+        return completedWeeks;
+    } catch (e) {
+        console.error('getCompletedWeeks error', e);
+        return new Set();
+    }
+};

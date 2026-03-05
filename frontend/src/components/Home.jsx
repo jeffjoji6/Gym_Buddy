@@ -173,20 +173,35 @@ export default function Home() {
                 ))}
             </div>
 
+
             <button
-                className="button-primary"
                 style={{
                     position: 'fixed',
-                    bottom: '24px',
+                    bottom: '28px',
                     right: '24px',
-                    borderRadius: '30px',
-                    padding: '12px 24px',
-                    boxShadow: '0 4px 12px rgba(187, 134, 252, 0.4)'
+                    width: '52px',
+                    height: '52px',
+                    borderRadius: '50%',
+                    background: 'var(--primary-color)',
+                    border: 'none',
+                    color: '#000',
+                    fontSize: '1.8rem',
+                    lineHeight: 1,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: 'pointer',
+                    boxShadow: '0 4px 16px rgba(187, 134, 252, 0.5)',
+                    zIndex: 100,
+                    transition: 'transform 0.15s ease, box-shadow 0.15s ease'
                 }}
+                onMouseEnter={e => e.currentTarget.style.transform = 'scale(1.1)'}
+                onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}
                 onClick={() => setShowCreate(true)}
             >
-                + New Workout
+                +
             </button>
+
 
             {showCreate && (
                 <div className="modal-overlay" onClick={() => setShowCreate(false)}>

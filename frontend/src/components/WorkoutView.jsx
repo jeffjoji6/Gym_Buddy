@@ -1,9 +1,10 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useSearchParams, Link } from 'react-router-dom';
-import { getWorkout, logSet, updateSet, deleteSet, deleteExercise, startSession, endSession, updateExerciseNotes } from '../services/api';
+import { getWorkout, logSet, updateSet, deleteSet, deleteExercise, startSession, endSession, updateExerciseNotes, getCompletedWeeks } from '../services/api';
 import { ChevronLeft, ChevronDown, ChevronUp, Check, Trash2, Trophy, Clock, BarChart2 } from 'lucide-react';
 import { useUser } from '../context/UserContext';
 import { useNotifications } from '../context/NotificationContext';
+import { useActiveSession } from '../context/ActiveSessionContext';
 import EditSetModal from './EditSetModal';
 import { useNavigate } from 'react-router-dom';
 
@@ -270,7 +271,10 @@ export default function WorkoutView() {
     const split = searchParams.get('split') || 'A';
     const { user } = useUser();
     const { addNotification } = useNotifications();
+    const { setActiveSession, clearActiveSession } = useActiveSession();
     const navigate = useNavigate();
+
+    const [completedWeeks, setCompletedWeeks] = useState(new Set());
 
     const [exercises, setExercises] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -305,6 +309,12 @@ export default function WorkoutView() {
             setSessionId(localStorage.getItem(`gym_buddy_session_id_${user}_${type}_${split}`));
         }
     }, [user, type, split]);
+
+    // Load completed weeks for color coding
+    useEffect(() => {
+        if (!user || !type) return;
+        getCompletedWeeks(user, type).then(setCompletedWeeks);
+    }, [user, type]);
 
     useEffect(() => {
         const load = async () => {
@@ -599,6 +609,8 @@ export default function WorkoutView() {
             setSessionId(res.session_id);
             localStorage.setItem(`gym_buddy_session_id_${user}_${type}_${split}`, res.session_id);
         }
+        // Register in global context so floating button appears on other pages
+        setActiveSession({ type, week, split, startTime: now });
     };
 
     const handleFinishWorkout = async () => {
@@ -635,6 +647,7 @@ export default function WorkoutView() {
                 setSessionId(null);
                 localStorage.removeItem(`gym_buddy_session_${user}_${type}_${split}`);
                 localStorage.removeItem(`gym_buddy_session_id_${user}_${type}_${split}`);
+                clearActiveSession(); // Hide floating button on other pages
             }
         } catch (e) {
             console.error(e);
@@ -784,18 +797,24 @@ export default function WorkoutView() {
                                 if (navigator.vibrate) navigator.vibrate(10);
                                 setSearchParams({ week: w });
                             }}
-                            style={{
-                                padding: '8px 16px',
-                                borderRadius: '20px',
-                                background: week === w ? 'var(--primary-color)' : 'var(--surface-highlight)',
-                                color: week === w ? '#000' : 'var(--text-color)',
-                                fontWeight: 'bold',
-                                cursor: 'pointer',
-                                minWidth: '40px',
-                                textAlign: 'center',
-                                transition: 'all 0.2s',
-                                flexShrink: 0 // Prevent squishing
-                            }}
+                            style={(() => {
+                                const isCurrent = week === w;
+                                const isDone = !isCurrent && completedWeeks.has(w);
+                                return {
+                                    padding: '8px 16px',
+                                    borderRadius: '20px',
+                                    background: isCurrent ? 'var(--primary-color)' : isDone ? 'rgba(3, 218, 198, 0.12)' : 'var(--surface-highlight)',
+                                    color: isCurrent ? '#000' : isDone ? 'var(--success-color)' : 'var(--text-color)',
+                                    fontWeight: 'bold',
+                                    cursor: 'pointer',
+                                    minWidth: '40px',
+                                    textAlign: 'center',
+                                    transition: 'all 0.2s',
+                                    flexShrink: 0,
+                                    border: isDone ? '1px solid rgba(3, 218, 198, 0.4)' : '1px solid transparent',
+                                    boxShadow: isDone ? '0 0 8px rgba(3, 218, 198, 0.15)' : 'none'
+                                };
+                            })()}
                         >
                             Week {w}
                         </div>
@@ -910,93 +929,177 @@ export default function WorkoutView() {
             )
             }
 
-            {/* Summary Modal */}
-            {
-                showSummary && summaryData && (
-                    <div className="modal-overlay" style={{ display: 'flex', alignItems: 'flex-end', zIndex: 1000 }}>
-                        <div className="modal-content animate-slide-up" style={{
-                            background: 'var(--surface-color)',
-                            height: '70vh',
-                            width: '100%',
-                            borderRadius: '24px 24px 0 0',
-                            overflowY: 'auto',
-                            padding: '24px',
-                            color: 'var(--text-color)'
-                        }} onClick={e => e.stopPropagation()}>
-                            <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
-                                <Trophy size={64} color="#ffd700" style={{ marginBottom: '1rem' }} />
-                                <h2 style={{ fontSize: '2rem', margin: '0 0 8px 0' }}>Workout Complete!</h2>
-                                <p style={{ color: 'var(--text-color)', fontSize: '1.2rem', fontWeight: '500' }}>Great job, {user}!</p>
-                                <p style={{ color: 'var(--text-dim)', fontStyle: 'italic', marginTop: '8px' }}>"One step closer to your goals. Keep showing up."</p>
+            {/* Summary Screen — Full Page Redesign */}
+            {showSummary && summaryData && (
+                <div style={{
+                    position: 'fixed', inset: 0, zIndex: 3000,
+                    background: 'var(--bg-color)',
+                    overflowY: 'auto',
+                    display: 'flex', flexDirection: 'column'
+                }}>
+                    {/* Hero gradient header */}
+                    <div style={{
+                        background: 'linear-gradient(160deg, #1a0533 0%, #0d1f2d 60%, #03dac6 200%)',
+                        padding: '48px 24px 40px',
+                        textAlign: 'center',
+                        position: 'relative',
+                        overflow: 'hidden'
+                    }}>
+                        {/* Background glow blobs */}
+                        <div style={{
+                            position: 'absolute', top: '-40px', left: '50%', transform: 'translateX(-50%)',
+                            width: '260px', height: '260px', borderRadius: '50%',
+                            background: 'radial-gradient(circle, rgba(187,134,252,0.18) 0%, transparent 70%)',
+                            pointerEvents: 'none'
+                        }} />
+
+                        {/* Animated trophy */}
+                        <div style={{ fontSize: '4rem', marginBottom: '12px', animation: 'trophyBounce 0.7s ease-out' }}>🏆</div>
+                        <h1 style={{
+                            fontSize: '2.2rem', fontWeight: '900', margin: '0 0 6px',
+                            background: 'linear-gradient(135deg, #fff 30%, var(--primary-color))',
+                            WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent'
+                        }}>
+                            Workout Complete!
+                        </h1>
+                        <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '1rem', margin: '0 0 4px' }}>
+                            Great job, <strong style={{ color: '#fff' }}>{user}</strong>! 💪
+                        </p>
+                        <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.82rem', fontStyle: 'italic', margin: 0 }}>
+                            "One step closer to your goals. Keep showing up."
+                        </p>
+                    </div>
+
+                    {/* Stats section */}
+                    <div style={{ padding: '24px 20px', flex: 1 }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '24px' }}>
+                            {/* Duration */}
+                            <div style={{
+                                background: 'var(--surface-color)',
+                                border: '1px solid rgba(187,134,252,0.25)',
+                                borderRadius: '18px', padding: '20px 16px',
+                                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px',
+                                boxShadow: '0 4px 20px rgba(187,134,252,0.08)'
+                            }}>
+                                <span style={{ fontSize: '1.6rem' }}>⏱️</span>
+                                <span style={{ fontSize: '0.78rem', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Duration</span>
+                                <span style={{ fontSize: '2rem', fontWeight: '800', color: 'var(--primary-color)' }}>
+                                    {Math.ceil((summaryData.duration_seconds || 0) / 60)}m
+                                </span>
                             </div>
 
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '2rem' }}>
-                                <div className="card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '16px' }}>
-                                    <Clock size={24} color="var(--primary-color)" style={{ marginBottom: '8px' }} />
-                                    <span style={{ fontSize: '0.9rem', color: 'var(--text-dim)' }}>Duration</span>
-                                    <span style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>{Math.ceil((summaryData.duration_seconds || 0) / 60)}m</span>
-                                </div>
-                                <div className="card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '16px' }}>
-                                    <BarChart2 size={24} color="var(--success-color)" style={{ marginBottom: '8px' }} />
-                                    <span style={{ fontSize: '0.9rem', color: 'var(--text-dim)' }}>Volume</span>
-                                    <span style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>{(summaryData.total_volume / 1000).toFixed(1)}k</span>
-                                    <span style={{ fontSize: '0.8rem', color: 'var(--text-dim)' }}>kg</span>
-                                </div>
+                            {/* Volume */}
+                            <div style={{
+                                background: 'var(--surface-color)',
+                                border: '1px solid rgba(3,218,198,0.25)',
+                                borderRadius: '18px', padding: '20px 16px',
+                                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px',
+                                boxShadow: '0 4px 20px rgba(3,218,198,0.08)'
+                            }}>
+                                <span style={{ fontSize: '1.6rem' }}>⚡</span>
+                                <span style={{ fontSize: '0.78rem', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Volume</span>
+                                <span style={{ fontSize: '2rem', fontWeight: '800', color: 'var(--success-color)' }}>
+                                    {summaryData.total_volume >= 1000
+                                        ? `${(summaryData.total_volume / 1000).toFixed(1)}k`
+                                        : summaryData.total_volume}
+                                </span>
+                                <span style={{ fontSize: '0.7rem', color: 'var(--text-dim)', marginTop: '-4px' }}>kg</span>
                             </div>
+                        </div>
 
-                            {summaryData.prs && summaryData.prs.length > 0 && (
-                                <div style={{ marginBottom: '2rem' }}>
-                                    <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                        <Trophy size={20} color="#ffd700" />
-                                        New Records
-                                    </h3>
+                        {/* PRs section */}
+                        {summaryData.prs && summaryData.prs.length > 0 && (
+                            <div style={{ marginBottom: '24px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                                    <span style={{ fontSize: '1.1rem' }}>🥇</span>
+                                    <span style={{ fontWeight: '700', fontSize: '0.95rem' }}>New Records Broken</span>
+                                </div>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                                     {summaryData.prs.map((pr, i) => (
                                         <div key={i} style={{
-                                            background: 'rgba(255, 215, 0, 0.1)',
-                                            border: '1px solid #ffd700',
-                                            padding: '12px',
-                                            borderRadius: '8px',
-                                            marginBottom: '8px',
-                                            color: '#ffd700'
+                                            background: 'linear-gradient(135deg, rgba(255,215,0,0.08), rgba(255,160,0,0.05))',
+                                            border: '1px solid rgba(255,215,0,0.3)',
+                                            borderRadius: '12px', padding: '12px 16px',
+                                            display: 'flex', alignItems: 'center', gap: '10px',
+                                            boxShadow: '0 2px 12px rgba(255,215,0,0.08)'
                                         }}>
-                                            {pr}
+                                            <span style={{ fontSize: '1rem' }}>🏅</span>
+                                            <span style={{ color: '#ffd166', fontWeight: '600', fontSize: '0.9rem' }}>{pr}</span>
                                         </div>
                                     ))}
                                 </div>
-                            )}
-
-                            <div style={{ marginBottom: '2rem' }}>
-                                <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-dim)' }}>Notes</label>
-                                <textarea
-                                    value={finishNotes}
-                                    onChange={e => setFinishNotes(e.target.value)}
-                                    placeholder="How did it feel?"
-                                    style={{
-                                        width: '100%',
-                                        minHeight: '80px',
-                                        background: 'var(--surface-highlight)',
-                                        border: 'none',
-                                        borderRadius: '12px',
-                                        padding: '12px',
-                                        color: 'var(--text-color)',
-                                        fontSize: '1rem'
-                                    }}
-                                />
                             </div>
+                        )}
 
-                            <button
-                                className="button-primary"
-                                style={{ width: '100%' }}
-                                onClick={closeSummary}
-                            >
-                                Done
-                            </button>
+                        {/* Notes */}
+                        <div style={{ marginBottom: '24px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+                                <span style={{ fontSize: '1rem' }}>📝</span>
+                                <span style={{ fontWeight: '700', fontSize: '0.95rem' }}>How did it feel?</span>
+                            </div>
+                            <textarea
+                                value={finishNotes}
+                                onChange={e => setFinishNotes(e.target.value)}
+                                placeholder="Add notes about this session..."
+                                rows={3}
+                                style={{
+                                    width: '100%',
+                                    background: 'var(--surface-color)',
+                                    border: '1px solid var(--surface-highlight)',
+                                    borderRadius: '14px', padding: '14px',
+                                    color: 'var(--text-color)', fontSize: '0.95rem',
+                                    resize: 'none', boxSizing: 'border-box',
+                                    outline: 'none', fontFamily: 'inherit',
+                                    lineHeight: '1.5'
+                                }}
+                            />
+                            {/* Emoji mood picker */}
+                            <div style={{
+                                display: 'flex', justifyContent: 'center', gap: '16px',
+                                marginTop: '12px'
+                            }}>
+                                {['😤', '💪', '😊', '😮‍💨', '🥵'].map(emoji => (
+                                    <button
+                                        key={emoji}
+                                        onClick={() => setFinishNotes(prev => prev ? `${prev} ${emoji}` : emoji)}
+                                        style={{
+                                            background: 'var(--surface-highlight)', border: 'none',
+                                            borderRadius: '10px', padding: '8px 10px',
+                                            fontSize: '1.4rem', cursor: 'pointer',
+                                            transition: 'transform 0.1s',
+                                        }}
+                                        onMouseEnter={e => e.currentTarget.style.transform = 'scale(1.2)'}
+                                        onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}
+                                    >
+                                        {emoji}
+                                    </button>
+                                ))}
+                            </div>
                         </div>
+
+                        {/* Done button */}
+                        <button
+                            onClick={closeSummary}
+                            style={{
+                                width: '100%',
+                                padding: '16px',
+                                borderRadius: '16px',
+                                background: 'linear-gradient(135deg, var(--primary-color), var(--success-color))',
+                                border: 'none', color: '#000',
+                                fontSize: '1.05rem', fontWeight: '800',
+                                cursor: 'pointer', letterSpacing: '0.03em',
+                                boxShadow: '0 4px 20px rgba(187,134,252,0.35)',
+                                marginBottom: '24px'
+                            }}
+                        >
+                            Back to Home 🚀
+                        </button>
                     </div>
-                )
-            }
+                </div>
+            )}
 
             {/* Start Workout Reminder Modal */}
+
             {showStartReminder && (
                 <div className="modal-overlay" onClick={() => setShowStartReminder(false)}>
                     <div className="modal-content animate-slide-up" onClick={e => e.stopPropagation()} style={{ maxWidth: '400px' }}>
