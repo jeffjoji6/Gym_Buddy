@@ -269,195 +269,162 @@ export const deleteWorkout = async (workoutType) => {
     return { success: !error, message: error ? error.message : "Deleted" };
 };
 
-export const startSession = async (user, workoutType, split = "A") => {
-    const userId = await getUserId(user);
-    
-    const { data: workout } = await supabase.from('workouts').select('id').eq('name', workoutType).single();
-    if (!workout) return { success: false, message: "Workout not found" };
-    
-    const { data, error } = await supabase
-        .from('workout_sessions')
-        .insert({
-            user_id: userId,
-            workout_id: workout.id,
-            split,
-            start_time: new Date().toISOString()
-        })
-        .select()
-        .single();
-        
-    if (error) return { success: false, message: error.message };
-    return { success: true, session_id: data.id };
-};
 
-export const endSession = async (sessionId, user, notes = "", totalVolume = 0) => {
-    const endTime = new Date();
-    
-    // 1. Fetch Session to get Start Time
-    const { data: session } = await supabase.from('workout_sessions').select('*').eq('id', sessionId).single();
-    if (!session) return { success: false, message: "Session not found" };
-    
-    const startTime = new Date(session.start_time);
-    const duration = Math.round((endTime - startTime) / 1000 / 60); // minutes
-    
-    // 2. Calculate Volume (Aggregation query)
-    // Passed directly from frontend now to save complex DB joins
-    
-    const { error } = await supabase
-        .from('workout_sessions')
-        .update({
-            end_time: endTime.toISOString(),
-            duration_minutes: duration,
-            notes: notes
-        })
-        .eq('id', sessionId);
-        
-    if (error) return { success: false, message: error.message };
-    
-    return { 
-        success: true, 
-        message: "Session ended", 
-        duration_minutes: duration, 
-        total_volume: totalVolume, 
-        prs: [] // parsing PRs requires complex history check, skipping for V1 migration
-    };
-};
 
 export const getDashboardStats = async (user) => {
     try {
         const userId = await getUserId(user);
         if (!userId) return { success: false };
 
-        // Get all workout names for mapping
-        const { data: allWorkouts } = await supabase
-            .from('workouts')
-            .select('id, name');
-        
+        // 1. Fetch reference maps: Workouts & Exercises
+        const { data: allWorkouts } = await supabase.from('workouts').select('id, name');
         const workoutNameMap = {};
-        if (allWorkouts) {
-            allWorkouts.forEach(w => { workoutNameMap[w.id] = w.name; });
-        }
+        if (allWorkouts) allWorkouts.forEach(w => { workoutNameMap[w.id] = w.name; });
 
-        // Get exercise names for PR details
-        const { data: allExercises } = await supabase
-            .from('exercises')
-            .select('id, name');
+        const { data: allExercises } = await supabase.from('exercises').select('id, name, workout_id');
         const exerciseNameMap = {};
+        const exerciseWorkoutMap = {};
         if (allExercises) {
-            allExercises.forEach(e => { exerciseNameMap[e.id] = e.name; });
+            allExercises.forEach(e => {
+                exerciseNameMap[e.id] = e.name;
+                exerciseWorkoutMap[e.id] = e.workout_id;
+            });
         }
 
-        // Get ALL sessions — INCLUDING ones where user forgot to end (end_time = null)
-        const { data: allSessions } = await supabase
-            .from('workout_sessions')
-            .select('id, start_time, end_time, workout_id, duration_minutes')
+        // 2. Get ALL sets for this user
+        const { data: allSets } = await supabase
+            .from('sets')
+            .select('exercise_id, weight, reps, week, timestamp')
             .eq('user_id', userId)
-            .order('start_time', { ascending: false });
+            .order('timestamp', { ascending: false });
 
-        let sessions = allSessions || [];
+        let sets = allSets || [];
+        // Filter out any anomalous sets without a timestamp
+        sets = sets.filter(s => s.timestamp);
 
-        // Compute real duration; for sessions with no end_time, treat them as valid (duration 0 shown)
-        // Filter out pure misclicks — only when we CAN compute duration and it's < 2 min
-        sessions = sessions.map(s => {
-            if (!s.end_time) {
-                return { ...s, realDuration: 0 }; // valid session, duration unknown
+        // 3. Group Sets by Local Day String (YYYY-MM-DD) to form implicit "sessions"
+        const dayMap = {}; // { '2023-10-01': { date: Date, volume: 0, sets: [], mainWorkoutId: null } }
+        
+        sets.forEach(s => {
+            const d = new Date(s.timestamp);
+            const dateStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+            if (!dayMap[dateStr]) {
+                dayMap[dateStr] = { date: d, volume: 0, sets: [], workoutCounts: {} };
             }
-            const rawDur = Math.round((new Date(s.end_time) - new Date(s.start_time)) / 60000);
-            return { ...s, realDuration: Math.min(rawDur, 180) }; // Cap display at 3 hours
-        }).filter(s => {
-            // Drop misclicks: only if we have an end_time AND it's under 2 minutes
-            if (s.end_time) {
-                const rawDur = Math.round((new Date(s.end_time) - new Date(s.start_time)) / 60000);
-                return rawDur >= 2;
+            
+            const vol = (parseFloat(s.weight) || 0) * (parseInt(s.reps) || 0);
+            dayMap[dateStr].volume += vol;
+            dayMap[dateStr].sets.push(s);
+            
+            // Map set back to its workout family
+            const wId = exerciseWorkoutMap[s.exercise_id];
+            if (wId) {
+                dayMap[dateStr].workoutCounts[wId] = (dayMap[dateStr].workoutCounts[wId] || 0) + 1;
             }
-            return true; // Keep all sessions with no end_time
         });
 
-        // Calculate dynamic Active Week based on first session
+        // 4. Derive summary list of Active Days
+        const activeDays = Object.keys(dayMap).sort((a,b) => b.localeCompare(a)); // Descending strings
+        const activeDayObjects = activeDays.map(ds => {
+            const data = dayMap[ds];
+            // Infer main workout type for the day by finding the one with the most sets
+            let mainWId = null;
+            let maxCount = 0;
+            for (const [wId, count] of Object.entries(data.workoutCounts)) {
+                if (count > maxCount) {
+                    maxCount = count;
+                    mainWId = wId;
+                }
+            }
+            const workoutName = workoutNameMap[mainWId] || 'Mixed Workout';
+            
+            return {
+                dateStr: ds,
+                date: data.date,
+                volume: data.volume,
+                workoutName,
+                setCount: data.sets.length
+            };
+        });
+
+        // Calculate dynamic Active Week based on first set ever logged
         let calculatedActiveWeek = 1;
-        if (sessions.length > 0) {
-            // sessions is ordered descending by start_time, so last item is the first session ever
-            const firstSession = sessions[sessions.length - 1];
-            const firstDate = new Date(firstSession.start_time);
-            firstDate.setHours(0, 0, 0, 0); // Normalize to start of day
+        if (activeDayObjects.length > 0) {
+            const firstDate = activeDayObjects[activeDayObjects.length - 1].date;
+            const normalizedFirst = new Date(firstDate);
+            normalizedFirst.setHours(0, 0, 0, 0);
+            
             const now = new Date();
-            const diffTime = Math.abs(now - firstDate);
+            now.setHours(0, 0, 0, 0);
+            
+            const diffTime = Math.abs(now - normalizedFirst);
             const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
             calculatedActiveWeek = Math.floor(diffDays / 7) + 1;
         }
 
-        // Workouts this week (Mon-Sun)
+        // --- Weekly View Setup ---
         const now = new Date();
         const dayOfWeek = now.getDay(); // 0=Sun
         const monday = new Date(now);
         monday.setDate(now.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
         monday.setHours(0, 0, 0, 0);
 
-        const sessionsThisWeek = sessions.filter(s => new Date(s.start_time) >= monday);
-        const workoutsThisWeek = sessionsThisWeek.length;
+        // Workouts this week (unique active days)
+        const daysThisWeek = activeDayObjects.filter(d => d.date >= monday);
+        const workoutsThisWeek = daysThisWeek.length;
+        
+        // Total volume this week
+        const totalVolumeThisWeek = daysThisWeek.reduce((sum, d) => sum + d.volume, 0);
 
-        // Weekly heatmap (Mon=0 ... Sun=6)
+        // Weekly Heatmap (0=Mon ... 6=Sun) based on active days flag or count
         const weeklyHeatmap = [0, 0, 0, 0, 0, 0, 0];
-        sessionsThisWeek.forEach(s => {
-            const d = new Date(s.start_time).getDay();
-            const idx = d === 0 ? 6 : d - 1;
-            weeklyHeatmap[idx]++;
+        daysThisWeek.forEach(d => {
+            let dayIdx = d.date.getDay();
+            dayIdx = dayIdx === 0 ? 6 : dayIdx - 1; // Map Sun(0)->6, M(1)->0
+            // Increment by 1 per active day (could also do setCount for intensity)
+            weeklyHeatmap[dayIdx]++; 
         });
 
-        // Streak
+        // 5. Streak Calculation
         let streak = 0;
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        const checkDate = new Date(today);
-        const todayEnd = new Date(today);
-        todayEnd.setHours(23, 59, 59, 999);
-        const hasToday = sessions.some(s => {
-            const d = new Date(s.start_time);
-            return d >= today && d <= todayEnd;
-        });
-        if (!hasToday) checkDate.setDate(checkDate.getDate() - 1);
-        for (let i = 0; i < 365; i++) {
-            const dayStart = new Date(checkDate);
-            dayStart.setHours(0, 0, 0, 0);
-            const dayEnd = new Date(checkDate);
-            dayEnd.setHours(23, 59, 59, 999);
-            if (sessions.some(s => { const d = new Date(s.start_time); return d >= dayStart && d <= dayEnd; })) {
-                streak++;
-                checkDate.setDate(checkDate.getDate() - 1);
-            } else break;
+        const todayStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+        
+        const yesterday = new Date(now);
+        yesterday.setDate(now.getDate() - 1);
+        const yestStr = `${yesterday.getFullYear()}-${String(yesterday.getMonth()+1).padStart(2,'0')}-${String(yesterday.getDate()).padStart(2,'0')}`;
+
+        // Fast set lookup
+        const daySet = new Set(activeDays);
+        
+        let checkDate = new Date();
+        // If they didn't work out today, start checking from yesterday
+        if (!daySet.has(todayStr)) {
+            checkDate.setDate(checkDate.getDate() - 1);
         }
 
-        // Get ALL sets for this user (for volume + PRs)
-        const { data: allSets } = await supabase
-            .from('sets')
-            .select('exercise_id, weight, reps, week, timestamp')
-            .eq('user_id', userId);
-
-        const sets = allSets || [];
-
-        // Total volume this week (FIXED: use 'timestamp' not 'created_at')
-        let totalVolumeThisWeek = 0;
-        sets.forEach(s => {
-            if (s.timestamp && new Date(s.timestamp) >= monday) {
-                totalVolumeThisWeek += (parseFloat(s.weight) || 0) * (parseInt(s.reps) || 0);
+        for (let i = 0; i < 365; i++) {
+            const checkStr = `${checkDate.getFullYear()}-${String(checkDate.getMonth()+1).padStart(2,'0')}-${String(checkDate.getDate()).padStart(2,'0')}`;
+            if (daySet.has(checkStr)) {
+                streak++;
+                checkDate.setDate(checkDate.getDate() - 1);
+            } else {
+                break;
             }
-        });
+        }
 
-        // Current week number (from URL context — approximate using the latest week in sets)
-        // For PRs: compare each exercise's max this week vs all-time previous max
+        // 6. PRs This Week
+        // Current week (use url-intended active week, approximating by the max week seen)
         const currentWeek = (() => {
             const weekNums = sets.map(s => s.week).filter(w => w != null);
             return weekNums.length > 0 ? Math.max(...weekNums) : 1;
         })();
 
-        // Group sets by exercise
         const setsByExercise = {};
         sets.forEach(s => {
             if (!setsByExercise[s.exercise_id]) setsByExercise[s.exercise_id] = [];
             setsByExercise[s.exercise_id].push(s);
         });
 
-        // Compute PRs this week
         let prsThisWeek = 0;
         const prDetailsList = [];
         Object.entries(setsByExercise).forEach(([exId, exSets]) => {
@@ -475,12 +442,16 @@ export const getDashboardStats = async (user) => {
                 prDetailsList.push(`${name}: ${thisWeekMax}kg`);
             }
         });
-        const recentActivity = sessions.slice(0, 10).map(s => ({
-            date: s.start_time,
-            workout: workoutNameMap[s.workout_id] || 'Workout',
-            duration: s.realDuration,
+
+        // 7. Recent Activity List
+        // Map the most recent active days into the recent activity log UI
+        const recentActivity = activeDayObjects.slice(0, 10).map(d => ({
+            date: d.date.toISOString(),
+            workout: d.workoutName,
+            duration: 0, // No longer tracked
             pr_count: 0,
-            pr_details: null
+            pr_details: null,
+            setsLogged: d.setCount // optional context
         }));
 
         return {
@@ -490,7 +461,7 @@ export const getDashboardStats = async (user) => {
                 workouts_this_week: workoutsThisWeek,
                 total_volume_this_week: totalVolumeThisWeek,
                 streak,
-                total_sessions: sessions.length,
+                total_sessions: activeDays.length, // total distinct days worked out
                 weekly_heatmap: weeklyHeatmap,
                 prs_this_week: prsThisWeek,
                 pr_details_list: prDetailsList,
@@ -646,36 +617,3 @@ export const getCompletedWeeks = async (user, workoutType) => {
     }
 };
 
-// Auto-end any open sessions older than 3 hours so they don't pollute stats
-export const autoEndStaleSessions = async (user) => {
-    try {
-        const userId = await getUserId(user);
-        if (!userId) return;
-
-        const THREE_HOURS_MS = 3 * 60 * 60 * 1000;
-        const cutoff = new Date(Date.now() - THREE_HOURS_MS).toISOString();
-
-        // Find sessions with no end_time that started more than 3 hours ago
-        const { data: staleSessions } = await supabase
-            .from('workout_sessions')
-            .select('id, start_time')
-            .eq('user_id', userId)
-            .is('end_time', null)
-            .lt('start_time', cutoff);
-
-        if (!staleSessions || staleSessions.length === 0) return;
-
-        // End each stale session at start_time + 3 hours (makes the duration look like 3h max)
-        for (const session of staleSessions) {
-            const autoEndTime = new Date(new Date(session.start_time).getTime() + THREE_HOURS_MS).toISOString();
-            await supabase
-                .from('workout_sessions')
-                .update({ end_time: autoEndTime, duration_minutes: 180, notes: '[Auto-ended: timer left running]' })
-                .eq('id', session.id);
-        }
-
-        console.log(`Auto-ended ${staleSessions.length} stale session(s)`);
-    } catch (e) {
-        console.error('autoEndStaleSessions error', e);
-    }
-};

@@ -1,12 +1,11 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useSearchParams, Link } from 'react-router-dom';
-import { getWorkout, logSet, updateSet, deleteSet, deleteExercise, startSession, endSession, updateExerciseNotes, getCompletedWeeks } from '../services/api';
+import { getWorkout, logSet, updateSet, deleteSet, deleteExercise, updateExerciseNotes, getCompletedWeeks } from '../services/api';
 import { ChevronLeft, ChevronDown, ChevronUp, Check, Trash2, Trophy, Clock, BarChart2 } from 'lucide-react';
 import { useUser } from '../context/UserContext';
 import { useNotifications } from '../context/NotificationContext';
-import { useActiveSession } from '../context/ActiveSessionContext';
 import EditSetModal from './EditSetModal';
-import { useNavigate } from 'react-router-dom';
+
 
 const ExerciseCard = React.memo(({ exercise, onLog, onUpdate, onDelete, onDeleteExercise, onMoveUp, onMoveDown, week, isEditing, onUpdateNotes, workoutType, user, split }) => {
     const [expanded, setExpanded] = useState(false);
@@ -28,12 +27,12 @@ const ExerciseCard = React.memo(({ exercise, onLog, onUpdate, onDelete, onDelete
     const handleLog = async () => {
         if (!weight || !reps) return;
         if (navigator.vibrate) navigator.vibrate(20);
-        await onLog(exercise.id, weight, reps);
-        setReps('');
-
-        // Trigger animation
-        setJustLogged(true);
-        setTimeout(() => setJustLogged(false), 500);
+        const success = await onLog(exercise.id, weight, reps);
+        if (success !== false) {
+            setReps('');
+            setJustLogged(true);
+            setTimeout(() => setJustLogged(false), 500);
+        }
     };
 
     const handleEditSave = async (id, w, r) => {
@@ -231,8 +230,12 @@ const ExerciseCard = React.memo(({ exercise, onLog, onUpdate, onDelete, onDelete
                     <button
                         onClick={async () => {
                             setSavingNotes(true);
-                            await onUpdateNotes(exercise.id, notes);
-                            setTimeout(() => setSavingNotes(false), 1000);
+                            const result = await onUpdateNotes(exercise.id, notes);
+                            if (result === false) {
+                                setSavingNotes(false);
+                            } else {
+                                setTimeout(() => setSavingNotes(false), 1000);
+                            }
                         }}
                         className="button-secondary"
                         disabled={savingNotes}
@@ -271,8 +274,6 @@ export default function WorkoutView() {
     const split = searchParams.get('split') || 'A';
     const { user } = useUser();
     const { addNotification } = useNotifications();
-    const { setActiveSession, clearActiveSession } = useActiveSession();
-    const navigate = useNavigate();
 
     const [completedWeeks, setCompletedWeeks] = useState(new Set());
 
@@ -281,34 +282,16 @@ export default function WorkoutView() {
     const [trigger, setTrigger] = useState(0);
     const [isEditing, setIsEditing] = useState(false);
 
-    // Session State
-    const [sessionId, setSessionId] = useState(null);
-    const [summaryData, setSummaryData] = useState(null);
-    const [showSummary, setShowSummary] = useState(false);
-    const [finishNotes, setFinishNotes] = useState('');
-    const [finishing, setFinishing] = useState(false);
-
-    const [showAddExercise, setShowAddExercise] = useState(false);
     const [newExerciseName, setNewExerciseName] = useState('');
     const [isAddingExercise, setIsAddingExercise] = useState(false);
-    const [showStartReminder, setShowStartReminder] = useState(false);
+    const [showAddExercise, setShowAddExercise] = useState(false);
     const [draggedExId, setDraggedExId] = useState(null);
     const [prToast, setPrToast] = useState(null);
-    const [showAutoEnd, setShowAutoEnd] = useState(false);
-    const hasAutoPrompted = useRef(false);
 
-    // Timer State
-    const [startTime, setStartTime] = useState(null);
-    const [duration, setDuration] = useState(0);
+    // Fetch generation counter to prevent stale network responses from overwriting optimistic updates
+    const fetchGenRef = useRef(0);
+    const optimisticRef = useRef(false);
 
-    useEffect(() => {
-        // Load session start time from local storage if available
-        const storedStart = localStorage.getItem(`gym_buddy_session_${user}_${type}_${split}`);
-        if (storedStart) {
-            setStartTime(parseInt(storedStart));
-            setSessionId(localStorage.getItem(`gym_buddy_session_id_${user}_${type}_${split}`));
-        }
-    }, [user, type, split]);
 
     // Load completed weeks for color coding
     useEffect(() => {
@@ -351,8 +334,18 @@ export default function WorkoutView() {
             // Only show full loading spinner on initial mount if NO CACHE exists
             if (!hasCache && exercises.length === 0) setLoading(true);
 
+            // Increment fetch generation so stale responses are discarded
+            const thisGen = ++fetchGenRef.current;
+
             try {
                 const data = await getWorkout(type, week, user, split);
+
+                // If a newer fetch was started or optimistic update happened, skip this stale response
+                if (fetchGenRef.current !== thisGen) return;
+                if (optimisticRef.current) {
+                    optimisticRef.current = false;
+                    return;
+                }
 
                 // Sort based on local storage
                 let savedOrder = [];
@@ -395,37 +388,7 @@ export default function WorkoutView() {
         }
     }, [week]);
 
-    useEffect(() => {
-        let interval;
-        if (startTime && !showSummary) {
-            interval = setInterval(() => {
-                const now = Date.now();
-                setDuration(Math.floor((now - startTime) / 1000));
-            }, 1000);
-        } else {
-            setDuration(0);
-        }
-        return () => clearInterval(interval);
-    }, [startTime, showSummary]);
-
-    // Auto-end detection: when all exercises have >= 3 sets
-    useEffect(() => {
-        if (!startTime || !sessionId || exercises.length === 0 || hasAutoPrompted.current) return;
-        const allDone = exercises.every(ex => (ex.sets || []).length >= 3);
-        if (allDone) {
-            hasAutoPrompted.current = true;
-            setShowAutoEnd(true);
-            if (navigator.vibrate) navigator.vibrate(200);
-        }
-    }, [exercises, startTime, sessionId]);
-
     const handleLogSet = async (exerciseId, weight, reps) => {
-        // Remind user to start workout if they haven't
-        if (!startTime) {
-            setShowStartReminder(true);
-            return; // Don't log the set yet
-        }
-
         const newWeight = parseFloat(weight);
         const exercise = exercises.find(e => e.id === exerciseId);
 
@@ -455,6 +418,7 @@ export default function WorkoutView() {
         };
 
         // Optimistic update
+        optimisticRef.current = true;
         setExercises(prev => prev.map(ex => {
             if (ex.id === exerciseId) {
                 return { ...ex, sets: [...(ex.sets || []), optimisticSet] };
@@ -480,43 +444,61 @@ export default function WorkoutView() {
                 }
                 return ex;
             }));
+            return true;
         } else {
-            // Error handling fallback
-            setTrigger(t => t + 1);
+            // Rollback optimistic update
+            setExercises(prev => prev.map(ex => {
+                if (ex.id === exerciseId) {
+                    return { ...ex, sets: (ex.sets || []).filter(s => s.id !== optimisticSet.id) };
+                }
+                return ex;
+            }));
+            addNotification('error', '❌ Failed to log set', res.message || 'Please try again', '❌');
+            return false;
         }
     };
 
-    const handleStartReminderConfirm = async () => {
-        setShowStartReminder(false);
-        await handleStartWorkout();
-    };
+
 
     const handleUpdateSet = async (id, weight, reps) => {
+        // Save old state for rollback
+        const prevExercises = exercises;
         // Optimistic update
+        optimisticRef.current = true;
         setExercises(prev => prev.map(ex => ({
             ...ex,
             sets: (ex.sets || []).map(s => s.id === id ? { ...s, weight, reps } : s)
         })));
 
-        await updateSet({
+        const res = await updateSet({
             set_id: id,
             weight: weight,
             reps: reps,
             user: user
         });
+        if (!res.success) {
+            setExercises(prevExercises);
+            addNotification('error', '❌ Failed to update set', res.message || 'Please try again', '❌');
+        }
     };
 
     const handleDeleteSet = async (id) => {
+        const prevExercises = exercises;
         // Optimistic update
+        optimisticRef.current = true;
         setExercises(prev => prev.map(ex => ({
             ...ex,
             sets: (ex.sets || []).filter(s => s.id !== id)
         })));
 
-        await deleteSet({
+        const res = await deleteSet({
             set_id: id,
             user: user
         });
+        if (!res.success) {
+            setExercises(prevExercises);
+            addNotification('error', '❌ Failed to delete set', res.message || 'Please try again', '❌');
+        }
     };
 
     const handleAddExercise = async (e) => {
@@ -531,33 +513,71 @@ export default function WorkoutView() {
                 return;
             }
 
-            setIsAddingExercise(true);
-            const { addExercise } = await import('../services/api');
-            await addExercise(type, trimmedName, user, split);
-            setTrigger(t => t + 1);
+            // Optimistic update — add a placeholder exercise immediately
+            const optimisticId = `temp_${Date.now()}`;
+            const optimisticExercise = {
+                id: optimisticId,
+                name: trimmedName,
+                sets: [],
+                prev_week_sets: [],
+                setup_notes: ''
+            };
+            optimisticRef.current = true;
+            setExercises(prev => [...prev, optimisticExercise]);
             setShowAddExercise(false);
             setNewExerciseName('');
+
+            setIsAddingExercise(true);
+            const { addExercise } = await import('../services/api');
+            const res = await addExercise(type, trimmedName, user, split);
+
+            if (res.success) {
+                // Refetch to get the real ID from the server
+                optimisticRef.current = false; // allow this refetch to go through
+                setTrigger(t => t + 1);
+            } else {
+                // Rollback optimistic insert
+                setExercises(prev => prev.filter(ex => ex.id !== optimisticId));
+                addNotification('error', '❌ Failed to add exercise', res.message || 'Please try again', '❌');
+            }
             setIsAddingExercise(false);
         }
     };
 
     const handleDeleteExercise = async (exerciseId) => {
+        const prevExercises = exercises;
         const newExercises = exercises.filter(ex => ex.id !== exerciseId);
+        optimisticRef.current = true;
         setExercises(newExercises);
 
         // Invalidate the SWR cache so deleted exercise doesn't reappear on next load
         const cacheKey = `gym_buddy_cache_${type}_${split}_${week}_${user}`;
         localStorage.setItem(cacheKey, JSON.stringify(newExercises));
-        // Also update the order cache
         const newIds = newExercises.map(e => e.id);
         localStorage.setItem(`gym_buddy_order_${type}_${split}`, JSON.stringify(newIds));
 
-        await deleteExercise(exerciseId);
+        const res = await deleteExercise(exerciseId);
+        if (!res.success) {
+            // Rollback
+            setExercises(prevExercises);
+            localStorage.setItem(cacheKey, JSON.stringify(prevExercises));
+            const oldIds = prevExercises.map(e => e.id);
+            localStorage.setItem(`gym_buddy_order_${type}_${split}`, JSON.stringify(oldIds));
+            addNotification('error', '❌ Failed to delete exercise', res.message || 'Please try again', '❌');
+        }
     };
 
     const handleUpdateNotes = async (exerciseId, setupNotes) => {
+        const prevExercises = exercises;
+        optimisticRef.current = true;
         setExercises(prev => prev.map(ex => ex.id === exerciseId ? { ...ex, setup_notes: setupNotes } : ex));
-        await updateExerciseNotes(exerciseId, setupNotes, user);
+        const res = await updateExerciseNotes(exerciseId, setupNotes, user);
+        if (!res.success) {
+            setExercises(prevExercises);
+            addNotification('error', '❌ Failed to save notes', res.message || 'Please try again', '❌');
+            return false;
+        }
+        return true;
     };
 
     const handleDragStart = (e, id) => {
@@ -589,84 +609,15 @@ export default function WorkoutView() {
         setDraggedExId(null);
     };
 
-    const formatTime = (seconds) => {
-        const hrs = Math.floor(seconds / 3600);
-        const mins = Math.floor((seconds % 3600) / 60);
-        const secs = seconds % 60;
-        if (hrs > 0) {
-            return `${hrs}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-        }
-        return `${mins}:${secs.toString().padStart(2, '0')}`;
-    };
 
-    const handleStartWorkout = async () => {
-        const now = Date.now();
-        setStartTime(now);
-        localStorage.setItem(`gym_buddy_session_${user}_${type}_${split}`, now.toString());
 
-        const res = await startSession(user, type, split);
-        if (res.success) {
-            setSessionId(res.session_id);
-            localStorage.setItem(`gym_buddy_session_id_${user}_${type}_${split}`, res.session_id);
-        }
-        // Register in global context so floating button appears on other pages
-        setActiveSession({ type, week, split, startTime: now });
-    };
 
-    const handleFinishWorkout = async () => {
-        if (!sessionId) {
-            // Fallback if session ID lost but local start time exists (rare)
-            setStartTime(null);
-            localStorage.removeItem(`gym_buddy_session_${user}_${type}_${split}`);
-            localStorage.removeItem(`gym_buddy_session_id_${user}_${type}_${split}`);
-            return;
-        }
-
-        // Calculate total volume across all tracked sets
-        let calculatedVolume = 0;
-        exercises.forEach(ex => {
-            if (ex.sets && Array.isArray(ex.sets)) {
-                ex.sets.forEach(s => {
-                    const w = parseFloat(s.weight) || 0;
-                    const r = parseInt(s.reps) || 0;
-                    calculatedVolume += (w * r);
-                });
-            }
-        });
-
-        setFinishing(true);
-        try {
-            const res = await endSession(sessionId, user, finishNotes, calculatedVolume);
-            if (res.success) {
-                // Snapshot the live duration BEFORE clearing startTime
-                const snapshotDuration = duration;
-                setSummaryData({ ...res, duration_seconds: snapshotDuration });
-                setShowSummary(true);
-                // Clear session
-                setStartTime(null);
-                setSessionId(null);
-                localStorage.removeItem(`gym_buddy_session_${user}_${type}_${split}`);
-                localStorage.removeItem(`gym_buddy_session_id_${user}_${type}_${split}`);
-                clearActiveSession(); // Hide floating button on other pages
-            }
-        } catch (e) {
-            console.error(e);
-            alert("Failed to finish workout");
-        }
-        setFinishing(false);
-    };
-
-    const closeSummary = () => {
-        setShowSummary(false);
-        navigate('/');
-    };
 
     return (
         <div className="animate-fade-in">
             {/* PR Blast Overlay */}
             {prToast && (
                 <div className="pr-blast-overlay" onClick={() => setPrToast(null)}>
-                    {/* Confetti particles */}
                     {[...Array(20)].map((_, i) => (
                         <div
                             key={i}
@@ -686,18 +637,15 @@ export default function WorkoutView() {
                         <div className="pr-blast-trophy">🏆</div>
                         <div className="pr-blast-fire">🔥🔥🔥</div>
                         <h1 className="pr-blast-title">NEW PR!</h1>
-                        <div className="pr-blast-details">
-                            {prToast.name}
-                        </div>
-                        <div className="pr-blast-weight">
-                            {prToast.weight} kg
-                        </div>
+                        <div className="pr-blast-details">{prToast.name}</div>
+                        <div className="pr-blast-weight">{prToast.weight} kg</div>
                         <div style={{ fontSize: '0.9rem', color: 'rgba(255,255,255,0.6)', marginTop: '12px' }}>Tap to dismiss</div>
                     </div>
                 </div>
             )}
+
             <div style={{ marginBottom: '16px' }}>
-                {/* Top row: back + title + action */}
+                {/* Top row: back + title */}
                 <div style={{ display: 'flex', alignItems: 'center', width: '100%', justifyContent: 'space-between', marginBottom: '12px' }}>
                     <Link to="/" style={{ color: 'var(--text-color)', display: 'flex' }}>
                         <ChevronLeft size={28} />
@@ -705,120 +653,48 @@ export default function WorkoutView() {
                     <div style={{ textAlign: 'center', flex: 1 }}>
                         <h2 style={{ margin: 0, fontSize: '1.3rem', letterSpacing: '0.5px' }}>{type}</h2>
                     </div>
-                    {!startTime ? (
-                        <button
-                            onClick={() => {
-                                if (navigator.vibrate) navigator.vibrate(50);
-                                handleStartWorkout();
-                            }}
-                            style={{
-                                padding: '10px 20px',
-                                fontSize: '0.9rem',
-                                fontWeight: '700',
-                                background: 'var(--success-color)',
-                                color: '#000',
-                                border: 'none',
-                                borderRadius: '12px',
-                                cursor: 'pointer',
-                                boxShadow: '0 4px 15px rgba(3, 218, 198, 0.3)'
-                            }}
-                        >
-                            ▶ Start
-                        </button>
-                    ) : (
-                        <button
-                            onClick={() => {
-                                if (navigator.vibrate) navigator.vibrate([30, 20, 30]);
-                                handleFinishWorkout();
-                            }}
-                            disabled={finishing}
-                            style={{
-                                padding: '10px 16px',
-                                fontSize: '0.9rem',
-                                fontWeight: '700',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '6px',
-                                background: 'rgba(207, 102, 121, 0.15)',
-                                color: 'var(--error-color)',
-                                border: '1px solid rgba(207, 102, 121, 0.3)',
-                                borderRadius: '12px',
-                                cursor: 'pointer'
-                            }}
-                        >
-                            <Clock size={14} /> {formatTime(duration)}
-                        </button>
-                    )}
                 </div>
 
-                {/* Split toggle — locked while a session is running */}
+                {/* Split toggle */}
                 <div style={{ display: 'flex', gap: '0', marginBottom: '12px', background: 'var(--surface-highlight)', borderRadius: '10px', padding: '3px' }}>
                     {['A', 'B'].map(s => {
                         const isActive = split === s;
-                        const isLocked = !!startTime && !isActive; // Lock inactive tab when session running
                         return (
                             <button
                                 key={s}
-                                disabled={isLocked}
                                 onClick={() => {
-                                    if (isLocked) return;
                                     if (navigator.vibrate) navigator.vibrate(10);
                                     setSearchParams(prev => { prev.set('split', s); return prev; });
                                 }}
-                                title={isLocked ? 'Cannot switch split during an active workout' : ''}
                                 style={{
-                                    flex: 1,
-                                    padding: '8px',
-                                    borderRadius: '8px',
-                                    border: 'none',
+                                    flex: 1, padding: '8px', borderRadius: '8px', border: 'none',
                                     background: isActive ? 'var(--primary-color)' : 'transparent',
-                                    color: isActive ? '#000' : isLocked ? 'rgba(255,255,255,0.2)' : 'var(--text-dim)',
-                                    fontWeight: '600',
-                                    fontSize: '0.85rem',
-                                    cursor: isLocked ? 'not-allowed' : 'pointer',
-                                    transition: 'all 0.2s',
-                                    opacity: isLocked ? 0.4 : 1
+                                    color: isActive ? '#000' : 'var(--text-dim)',
+                                    fontWeight: '600', fontSize: '0.85rem', cursor: 'pointer', transition: 'all 0.2s'
                                 }}
                             >
-                                Split {s === 'A' ? '1' : '2'} {isLocked ? '🔒' : ''}
+                                Split {s === 'A' ? '1' : '2'}
                             </button>
                         );
                     })}
                 </div>
 
                 {/* Horizontal Week Selector */}
-                <div style={{
-                    display: 'flex',
-                    overflowX: 'auto',
-                    whiteSpace: 'nowrap',
-                    width: '100%',
-                    gap: '12px',
-                    padding: '4px 0',
-                    scrollbarWidth: 'none',
-                    scrollBehavior: 'smooth'
-                }}>
+                <div style={{ display: 'flex', overflowX: 'auto', whiteSpace: 'nowrap', width: '100%', gap: '12px', padding: '4px 0', scrollbarWidth: 'none', scrollBehavior: 'smooth' }}>
                     {Array.from({ length: 52 }, (_, i) => i + 1).map(w => (
                         <div
                             key={w}
                             id={`week-${w}`}
-                            onClick={() => {
-                                if (navigator.vibrate) navigator.vibrate(10);
-                                setSearchParams({ week: w });
-                            }}
+                            onClick={() => { if (navigator.vibrate) navigator.vibrate(10); setSearchParams({ week: w }); }}
                             style={(() => {
                                 const isCurrent = week === w;
                                 const isDone = !isCurrent && completedWeeks.has(w);
                                 return {
-                                    padding: '8px 16px',
-                                    borderRadius: '20px',
+                                    padding: '8px 16px', borderRadius: '20px',
                                     background: isCurrent ? 'var(--primary-color)' : isDone ? 'rgba(3, 218, 198, 0.12)' : 'var(--surface-highlight)',
                                     color: isCurrent ? '#000' : isDone ? 'var(--success-color)' : 'var(--text-color)',
-                                    fontWeight: 'bold',
-                                    cursor: 'pointer',
-                                    minWidth: '40px',
-                                    textAlign: 'center',
-                                    transition: 'all 0.2s',
-                                    flexShrink: 0,
+                                    fontWeight: 'bold', cursor: 'pointer', minWidth: '40px', textAlign: 'center',
+                                    transition: 'all 0.2s', flexShrink: 0,
                                     border: isDone ? '1px solid rgba(3, 218, 198, 0.4)' : '1px solid transparent',
                                     boxShadow: isDone ? '0 0 8px rgba(3, 218, 198, 0.15)' : 'none'
                                 };
@@ -830,8 +706,7 @@ export default function WorkoutView() {
                 </div>
             </div>
 
-
-
+            {/* Exercise List */}
             {loading ? (
                 <div style={{ textAlign: 'center', padding: '2rem' }}>Loading...</div>
             ) : (
@@ -875,30 +750,16 @@ export default function WorkoutView() {
 
                     <button
                         className="button-secondary"
-                        style={{
-                            width: '100%',
-                            marginTop: '1rem',
-                            padding: '16px',
-                            border: '2px dashed var(--text-dim)',
-                            background: 'transparent',
-                            color: 'var(--text-dim)'
-                        }}
+                        style={{ width: '100%', marginTop: '1rem', padding: '16px', border: '2px dashed var(--text-dim)', background: 'transparent', color: 'var(--text-dim)' }}
                         onClick={() => setShowAddExercise(true)}
                     >
                         + Add Exercise
                     </button>
 
-                    {/* Edit Mode Toggle (Bottom) */}
                     <div style={{ marginTop: '2rem', textAlign: 'center' }}>
                         <button
                             onClick={() => setIsEditing(!isEditing)}
-                            style={{
-                                background: 'transparent',
-                                border: 'none',
-                                color: 'var(--text-dim)',
-                                cursor: 'pointer',
-                                textDecoration: 'underline'
-                            }}
+                            style={{ background: 'transparent', border: 'none', color: 'var(--text-dim)', cursor: 'pointer', textDecoration: 'underline' }}
                         >
                             {isEditing ? 'Done Editing' : 'Edit Exercises'}
                         </button>
@@ -906,8 +767,7 @@ export default function WorkoutView() {
                 </div>
             )}
 
-
-
+            {/* Add Exercise Modal */}
             {showAddExercise && (
                 <div className="modal-overlay" onClick={() => setShowAddExercise(false)}>
                     <div className="modal-content animate-slide-up" onClick={e => e.stopPropagation()}>
@@ -923,263 +783,15 @@ export default function WorkoutView() {
                             />
                             <div style={{ display: 'flex', gap: '1rem' }}>
                                 <button type="button" className="button-secondary" onClick={() => setShowAddExercise(false)} style={{ flex: 1 }}>Cancel</button>
-                                <button
-                                    className="button-primary"
-                                    style={{ flex: 1, opacity: isAddingExercise ? 0.7 : 1 }}
-                                    disabled={isAddingExercise}
-                                >
+                                <button className="button-primary" style={{ flex: 1, opacity: isAddingExercise ? 0.7 : 1 }} disabled={isAddingExercise}>
                                     {isAddingExercise ? 'Adding...' : 'Add'}
                                 </button>
                             </div>
                         </form>
                     </div>
                 </div>
-            )
-            }
-
-            {/* Summary Screen — Full Page Redesign */}
-            {showSummary && summaryData && (
-                <div style={{
-                    position: 'fixed', inset: 0, zIndex: 3000,
-                    background: 'var(--bg-color)',
-                    overflowY: 'auto',
-                    display: 'flex', flexDirection: 'column'
-                }}>
-                    {/* Hero gradient header */}
-                    <div style={{
-                        background: 'linear-gradient(160deg, #1a0533 0%, #0d1f2d 60%, #03dac6 200%)',
-                        padding: '48px 24px 40px',
-                        textAlign: 'center',
-                        position: 'relative',
-                        overflow: 'hidden'
-                    }}>
-                        {/* Background glow blobs */}
-                        <div style={{
-                            position: 'absolute', top: '-40px', left: '50%', transform: 'translateX(-50%)',
-                            width: '260px', height: '260px', borderRadius: '50%',
-                            background: 'radial-gradient(circle, rgba(187,134,252,0.18) 0%, transparent 70%)',
-                            pointerEvents: 'none'
-                        }} />
-
-                        {/* Animated trophy */}
-                        <div style={{ fontSize: '4rem', marginBottom: '12px', animation: 'trophyBounce 0.7s ease-out' }}>🏆</div>
-                        <h1 style={{
-                            fontSize: '2.2rem', fontWeight: '900', margin: '0 0 6px',
-                            background: 'linear-gradient(135deg, #fff 30%, var(--primary-color))',
-                            WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent'
-                        }}>
-                            Workout Complete!
-                        </h1>
-                        <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '1rem', margin: '0 0 4px' }}>
-                            Great job, <strong style={{ color: '#fff' }}>{user}</strong>! 💪
-                        </p>
-                        <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.82rem', fontStyle: 'italic', margin: 0 }}>
-                            "One step closer to your goals. Keep showing up."
-                        </p>
-                    </div>
-
-                    {/* Stats section */}
-                    <div style={{ padding: '24px 20px', flex: 1 }}>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '24px' }}>
-                            {/* Duration */}
-                            <div style={{
-                                background: 'var(--surface-color)',
-                                border: '1px solid rgba(187,134,252,0.25)',
-                                borderRadius: '18px', padding: '20px 16px',
-                                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px',
-                                boxShadow: '0 4px 20px rgba(187,134,252,0.08)'
-                            }}>
-                                <span style={{ fontSize: '1.6rem' }}>⏱️</span>
-                                <span style={{ fontSize: '0.78rem', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Duration</span>
-                                <span style={{ fontSize: '2rem', fontWeight: '800', color: 'var(--primary-color)' }}>
-                                    {Math.ceil((summaryData.duration_seconds || 0) / 60)}m
-                                </span>
-                            </div>
-
-                            {/* Volume */}
-                            <div style={{
-                                background: 'var(--surface-color)',
-                                border: '1px solid rgba(3,218,198,0.25)',
-                                borderRadius: '18px', padding: '20px 16px',
-                                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px',
-                                boxShadow: '0 4px 20px rgba(3,218,198,0.08)'
-                            }}>
-                                <span style={{ fontSize: '1.6rem' }}>⚡</span>
-                                <span style={{ fontSize: '0.78rem', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Volume</span>
-                                <span style={{ fontSize: '2rem', fontWeight: '800', color: 'var(--success-color)' }}>
-                                    {summaryData.total_volume >= 1000
-                                        ? `${(summaryData.total_volume / 1000).toFixed(1)}k`
-                                        : summaryData.total_volume}
-                                </span>
-                                <span style={{ fontSize: '0.7rem', color: 'var(--text-dim)', marginTop: '-4px' }}>kg</span>
-                            </div>
-                        </div>
-
-                        {/* PRs section */}
-                        {summaryData.prs && summaryData.prs.length > 0 && (
-                            <div style={{ marginBottom: '24px' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-                                    <span style={{ fontSize: '1.1rem' }}>🥇</span>
-                                    <span style={{ fontWeight: '700', fontSize: '0.95rem' }}>New Records Broken</span>
-                                </div>
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                    {summaryData.prs.map((pr, i) => (
-                                        <div key={i} style={{
-                                            background: 'linear-gradient(135deg, rgba(255,215,0,0.08), rgba(255,160,0,0.05))',
-                                            border: '1px solid rgba(255,215,0,0.3)',
-                                            borderRadius: '12px', padding: '12px 16px',
-                                            display: 'flex', alignItems: 'center', gap: '10px',
-                                            boxShadow: '0 2px 12px rgba(255,215,0,0.08)'
-                                        }}>
-                                            <span style={{ fontSize: '1rem' }}>🏅</span>
-                                            <span style={{ color: '#ffd166', fontWeight: '600', fontSize: '0.9rem' }}>{pr}</span>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-
-                        {/* Notes */}
-                        <div style={{ marginBottom: '24px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
-                                <span style={{ fontSize: '1rem' }}>📝</span>
-                                <span style={{ fontWeight: '700', fontSize: '0.95rem' }}>How did it feel?</span>
-                            </div>
-                            <textarea
-                                value={finishNotes}
-                                onChange={e => setFinishNotes(e.target.value)}
-                                placeholder="Add notes about this session..."
-                                rows={3}
-                                style={{
-                                    width: '100%',
-                                    background: 'var(--surface-color)',
-                                    border: '1px solid var(--surface-highlight)',
-                                    borderRadius: '14px', padding: '14px',
-                                    color: 'var(--text-color)', fontSize: '0.95rem',
-                                    resize: 'none', boxSizing: 'border-box',
-                                    outline: 'none', fontFamily: 'inherit',
-                                    lineHeight: '1.5'
-                                }}
-                            />
-                            {/* Emoji mood picker */}
-                            <div style={{
-                                display: 'flex', justifyContent: 'center', gap: '16px',
-                                marginTop: '12px'
-                            }}>
-                                {['😤', '💪', '😊', '😮‍💨', '🥵'].map(emoji => (
-                                    <button
-                                        key={emoji}
-                                        onClick={() => setFinishNotes(prev => prev ? `${prev} ${emoji}` : emoji)}
-                                        style={{
-                                            background: 'var(--surface-highlight)', border: 'none',
-                                            borderRadius: '10px', padding: '8px 10px',
-                                            fontSize: '1.4rem', cursor: 'pointer',
-                                            transition: 'transform 0.1s',
-                                        }}
-                                        onMouseEnter={e => e.currentTarget.style.transform = 'scale(1.2)'}
-                                        onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}
-                                    >
-                                        {emoji}
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-
-                        {/* Done button */}
-                        <button
-                            onClick={closeSummary}
-                            style={{
-                                width: '100%',
-                                padding: '16px',
-                                borderRadius: '16px',
-                                background: 'linear-gradient(135deg, var(--primary-color), var(--success-color))',
-                                border: 'none', color: '#000',
-                                fontSize: '1.05rem', fontWeight: '800',
-                                cursor: 'pointer', letterSpacing: '0.03em',
-                                boxShadow: '0 4px 20px rgba(187,134,252,0.35)',
-                                marginBottom: '24px'
-                            }}
-                        >
-                            Back to Home 🚀
-                        </button>
-                    </div>
-                </div>
             )}
-
-            {/* Start Workout Reminder Modal */}
-
-            {showStartReminder && (
-                <div className="modal-overlay" onClick={() => setShowStartReminder(false)}>
-                    <div className="modal-content animate-slide-up" onClick={e => e.stopPropagation()} style={{ maxWidth: '400px' }}>
-                        <h3 style={{ marginBottom: '1rem', textAlign: 'center' }}>Start Your Workout</h3>
-                        <p style={{ color: 'var(--text-dim)', textAlign: 'center', marginBottom: '2rem' }}>
-                            You haven't started your workout yet! Would you like to start the timer now?
-                        </p>
-                        <div style={{ display: 'flex', gap: '1rem' }}>
-                            <button
-                                type="button"
-                                className="button-secondary"
-                                onClick={() => setShowStartReminder(false)}
-                                style={{ flex: 1 }}
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                className="button-primary"
-                                onClick={handleStartReminderConfirm}
-                                style={{ flex: 1, background: 'var(--success-color)' }}
-                            >
-                                Start Now
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* Auto-End Banner */}
-            {showAutoEnd && (
-                <div className="auto-end-banner">
-                    <div>
-                        <div style={{ fontWeight: '700', fontSize: '1.1rem' }}>🎉 All exercises done!</div>
-                        <div style={{ fontSize: '0.85rem', opacity: 0.8 }}>Ready to finish your workout?</div>
-                    </div>
-                    <div style={{ display: 'flex', gap: '8px' }}>
-                        <button
-                            onClick={() => setShowAutoEnd(false)}
-                            style={{
-                                background: 'rgba(0,0,0,0.2)',
-                                color: '#000',
-                                border: 'none',
-                                borderRadius: '8px',
-                                padding: '8px 14px',
-                                fontWeight: '600',
-                                fontSize: '0.85rem',
-                                cursor: 'pointer'
-                            }}
-                        >
-                            Keep Going
-                        </button>
-                        <button
-                            onClick={() => {
-                                setShowAutoEnd(false);
-                                handleFinishWorkout();
-                            }}
-                            style={{
-                                background: '#000',
-                                color: 'var(--success-color)',
-                                border: 'none',
-                                borderRadius: '8px',
-                                padding: '8px 14px',
-                                fontWeight: '700',
-                                fontSize: '0.85rem',
-                                cursor: 'pointer'
-                            }}
-                        >
-                            Finish Workout
-                        </button>
-                    </div>
-                </div>
-            )}
-        </div >
+        </div>
     );
 }
+

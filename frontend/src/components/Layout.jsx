@@ -3,7 +3,6 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Dumbbell, User, LogOut, Bell, Menu, X, Home, LayoutDashboard, Play } from 'lucide-react';
 import { useUser } from '../context/UserContext';
 import { useNotifications } from '../context/NotificationContext';
-import { useActiveSession } from '../context/ActiveSessionContext';
 
 function getTimeAgo(ts) {
     const diff = Date.now() - new Date(ts).getTime();
@@ -19,22 +18,11 @@ function getTimeAgo(ts) {
 export default function Layout({ children }) {
     const { user, logout } = useUser();
     const { notifications, unreadCount, markAllRead, clearAll } = useNotifications();
-    const { activeSession } = useActiveSession();
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [showNotifs, setShowNotifs] = useState(false);
-    const [elapsedSecs, setElapsedSecs] = useState(0);
     const notifRef = useRef(null);
     const location = useLocation();
     const navigate = useNavigate();
-
-    // Live timer for floating button
-    useEffect(() => {
-        if (!activeSession?.startTime) { setElapsedSecs(0); return; }
-        const tick = () => setElapsedSecs(Math.floor((Date.now() - activeSession.startTime) / 1000));
-        tick();
-        const id = setInterval(tick, 1000);
-        return () => clearInterval(id);
-    }, [activeSession?.startTime]);
 
     // Close sidebar on route change
     useEffect(() => {
@@ -267,48 +255,6 @@ export default function Layout({ children }) {
 
                 <main>{children}</main>
             </div>
-
-            {/* Floating Return to Workout — OUTSIDE container so position:fixed is true viewport-relative */}
-            {activeSession && !location.pathname.startsWith('/workout') && (
-                <div
-                    onClick={() => navigate(`/workout/${activeSession.type}?week=${activeSession.week}&split=${activeSession.split || 'A'}`)}
-                    style={{
-                        position: 'fixed',
-                        bottom: '24px',
-                        left: '50%',
-                        transform: 'translateX(-50%)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '10px',
-                        padding: '12px 20px',
-                        borderRadius: '50px',
-                        background: 'linear-gradient(135deg, rgba(187,134,252,0.95), rgba(3,218,198,0.95))',
-                        backdropFilter: 'blur(10px)',
-                        boxShadow: '0 4px 24px rgba(187,134,252,0.4)',
-                        cursor: 'pointer',
-                        zIndex: 4000,
-                        whiteSpace: 'nowrap',
-                        animation: 'fadeIn 0.3s ease-out'
-                    }}
-                >
-                    <span style={{
-                        width: '10px', height: '10px', borderRadius: '50%',
-                        background: '#ff6b6b',
-                        animation: 'firePulse 1s ease-in-out infinite alternate',
-                        flexShrink: 0
-                    }} />
-                    <Play size={14} color="#000" fill="#000" />
-                    <span style={{ fontWeight: '700', color: '#000', fontSize: '0.9rem' }}>
-                        {activeSession.type} Workout
-                    </span>
-                    <span style={{
-                        fontVariantNumeric: 'tabular-nums',
-                        fontWeight: '600', color: 'rgba(0,0,0,0.7)', fontSize: '0.85rem'
-                    }}>
-                        {fmtTime(elapsedSecs)}
-                    </span>
-                </div>
-            )}
         </>
     );
 }
