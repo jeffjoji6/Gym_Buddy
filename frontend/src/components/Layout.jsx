@@ -17,12 +17,34 @@ function getTimeAgo(ts) {
 
 export default function Layout({ children }) {
     const { user, logout } = useUser();
-    const { notifications, unreadCount, markAllRead, clearAll } = useNotifications();
+    const { notifications, unreadCount, markAllRead, clearAll, addNotification } = useNotifications();
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [showNotifs, setShowNotifs] = useState(false);
+    const [isOffline, setIsOffline] = useState(!navigator.onLine);
     const notifRef = useRef(null);
     const location = useLocation();
     const navigate = useNavigate();
+
+    useEffect(() => {
+        const handleOnline = () => setIsOffline(false);
+        const handleOffline = () => setIsOffline(true);
+        const handleSyncComplete = (e) => {
+            const count = e.detail?.count || 0;
+            if (count > 0 && addNotification) {
+                addNotification('success', 'Sync Complete', `Successfully synced ${count} offline action(s).`, '✅');
+            }
+        };
+
+        window.addEventListener('online', handleOnline);
+        window.addEventListener('offline', handleOffline);
+        window.addEventListener('offlineSyncComplete', handleSyncComplete);
+
+        return () => {
+            window.removeEventListener('online', handleOnline);
+            window.removeEventListener('offline', handleOffline);
+            window.removeEventListener('offlineSyncComplete', handleSyncComplete);
+        };
+    }, [addNotification]);
 
     // Close sidebar on route change
     useEffect(() => {
@@ -57,6 +79,14 @@ export default function Layout({ children }) {
     return (
         <>
             <div className="container">
+                {isOffline && (
+                    <div style={{
+                        background: '#ffb300', color: '#000', textAlign: 'center', padding: '10px',
+                        fontSize: '0.9rem', fontWeight: 'bold', zIndex: 1000
+                    }}>
+                        ⚠️ You are offline. Changes will be saved and synced later.
+                    </div>
+                )}
                 {/* Header */}
                 <header className="header">
                     <Link to="/" style={{ textDecoration: 'none', color: 'inherit' }}>

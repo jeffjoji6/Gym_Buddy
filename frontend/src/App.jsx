@@ -1,4 +1,5 @@
-import React, { Suspense, lazy } from 'react';
+import React, { Suspense, lazy, useEffect } from 'react';
+import { syncOfflineQueue } from './services/api';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import Layout from './components/Layout';
 import Login from './components/Login';
@@ -34,6 +35,12 @@ function AuthenticatedRoutes() {
 }
 
 function App() {
+    useEffect(() => {
+        const handleOnline = () => syncOfflineQueue();
+        window.addEventListener('online', handleOnline);
+        return () => window.removeEventListener('online', handleOnline);
+    }, []);
+
     return (
         <UserProvider>
             <AuthenticatedRoutes />

@@ -1,5 +1,54 @@
 import { supabase } from '../supabaseClient';
 
+const OFFLINE_QUEUE_KEY = 'gym_buddy_offline_queue';
+
+const addToOfflineQueue = (action, payload) => {
+    try {
+        const queue = JSON.parse(localStorage.getItem(OFFLINE_QUEUE_KEY) || '[]');
+        queue.push({ action, payload, timestamp: Date.now() });
+        localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(queue));
+    } catch (e) {
+        console.error('Failed to queue offline action', e);
+    }
+};
+
+export const syncOfflineQueue = async () => {
+    if (!navigator.onLine) return;
+    
+    try {
+        const queue = JSON.parse(localStorage.getItem(OFFLINE_QUEUE_KEY) || '[]');
+        if (queue.length === 0) return;
+        
+        let successCount = 0;
+        let failedQueue = [];
+
+        for (const item of queue) {
+            let res;
+            switch(item.action) {
+                case 'logSet': res = await logSet(item.payload, true); break;
+                case 'updateSet': res = await updateSet(item.payload, true); break;
+                case 'deleteSet': res = await deleteSet(item.payload, true); break;
+                case 'addExercise': res = await addExercise(item.payload.workoutType, item.payload.name, item.payload.username, item.payload.split, true); break;
+                case 'deleteExercise': res = await deleteExercise(item.payload.exerciseId, true); break;
+                case 'updateExerciseNotes': res = await updateExerciseNotes(item.payload.exerciseId, item.payload.setupNotes, item.payload.user, true); break;
+            }
+            if (res && res.success) {
+                successCount++;
+            } else {
+                failedQueue.push(item);
+            }
+        }
+        
+        localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(failedQueue));
+        
+        if (successCount > 0) {
+            window.dispatchEvent(new CustomEvent('offlineSyncComplete', { detail: { count: successCount } }));
+        }
+    } catch (e) {
+        console.error('Failed to sync offline queue', e);
+    }
+};
+
 export const getUsers = async () => {
     const { data, error } = await supabase
         .from('users')
@@ -133,7 +182,11 @@ export const getWorkouts = async (username) => {
     return { workouts: data };
 };
 
-export const logSet = async (payload) => {
+export const logSet = async (payload, isSyncing = false) => {
+    if (!navigator.onLine && !isSyncing) {
+        addToOfflineQueue('logSet', payload);
+        return { success: true, message: "Queued offline", data: { id: `offline_${Date.now()}`, ...payload } };
+    }
     const { exercise_id, weight, reps, week, user } = payload;
     const userId = await getUserId(user);
     
@@ -165,7 +218,11 @@ export const logSet = async (payload) => {
     return { success: true, message: "Logged", data: insertedData };
 };
 
-export const updateSet = async (payload) => {
+export const updateSet = async (payload, isSyncing = false) => {
+    if (!navigator.onLine && !isSyncing) {
+        addToOfflineQueue('updateSet', payload);
+        return { success: true, message: "Queued offline" };
+    }
     const { set_id, weight, reps } = payload;
     const { error } = await supabase
         .from('sets')
@@ -175,7 +232,11 @@ export const updateSet = async (payload) => {
     return { success: !error, message: error ? error.message : "Updated" };
 };
 
-export const deleteSet = async (payload) => {
+export const deleteSet = async (payload, isSyncing = false) => {
+    if (!navigator.onLine && !isSyncing) {
+        addToOfflineQueue('deleteSet', payload);
+        return { success: true, message: "Queued offline" };
+    }
     const { set_id } = payload;
     const { error } = await supabase
         .from('sets')
@@ -222,7 +283,11 @@ export const createWorkout = async (name, username) => {
     return { success: !error, message: error ? error.message : "Created" };
 };
 
-export const addExercise = async (workoutType, name, username, split = "A") => {
+export const addExercise = async (workoutType, name, username, split = "A", isSyncing = false) => {
+    if (!navigator.onLine && !isSyncing) {
+        addToOfflineQueue('addExercise', { workoutType, name, username, split });
+        return { success: true, message: "Queued offline", data: { id: `offline_${Date.now()}` } };
+    }
     const userId = await getUserId(username); // Current user adding it
     
     // 1. Get Workout ID
@@ -247,7 +312,11 @@ export const addExercise = async (workoutType, name, username, split = "A") => {
     return { success: !error, message: error ? error.message : "Added" };
 };
 
-export const deleteExercise = async (exerciseId) => {
+export const deleteExercise = async (exerciseId, isSyncing = false) => {
+    if (!navigator.onLine && !isSyncing) {
+        addToOfflineQueue('deleteExercise', { exerciseId });
+        return { success: true, message: "Queued offline" };
+    }
     // Delete from DB. Constraints should cascade sets deletion?
     // If not, we might need manual cleanup.
     // Assuming Postgres ON DELETE CASCADE is set up or we do it manually.
@@ -531,7 +600,11 @@ export const getProgressData = async (user) => {
     }
 };
 
-export const updateExerciseNotes = async (exerciseId, setupNotes, user) => {
+export const updateExerciseNotes = async (exerciseId, setupNotes, user, isSyncing = false) => {
+    if (!navigator.onLine && !isSyncing) {
+        addToOfflineQueue('updateExerciseNotes', { exerciseId, setupNotes, user });
+        return { success: true, message: "Queued offline" };
+    }
     const userId = await getUserId(user);
     if (!userId) return { success: false, message: 'User not found' };
 

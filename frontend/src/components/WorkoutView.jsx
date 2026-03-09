@@ -691,12 +691,11 @@ export default function WorkoutView() {
                                 const isDone = !isCurrent && completedWeeks.has(w);
                                 return {
                                     padding: '8px 16px', borderRadius: '20px',
-                                    background: isCurrent ? 'var(--primary-color)' : isDone ? 'rgba(3, 218, 198, 0.12)' : 'var(--surface-highlight)',
-                                    color: isCurrent ? '#000' : isDone ? 'var(--success-color)' : 'var(--text-color)',
+                                    background: isCurrent ? 'var(--primary-color)' : isDone ? 'var(--success-color)' : 'var(--surface-highlight)',
+                                    color: isCurrent ? '#000' : isDone ? '#000' : 'var(--text-color)',
                                     fontWeight: 'bold', cursor: 'pointer', minWidth: '40px', textAlign: 'center',
                                     transition: 'all 0.2s', flexShrink: 0,
-                                    border: isDone ? '1px solid rgba(3, 218, 198, 0.4)' : '1px solid transparent',
-                                    boxShadow: isDone ? '0 0 8px rgba(3, 218, 198, 0.15)' : 'none'
+                                    boxShadow: isDone ? '0 0 8px rgba(3, 218, 198, 0.4)' : 'none'
                                 };
                             })()}
                         >
@@ -708,7 +707,16 @@ export default function WorkoutView() {
 
             {/* Exercise List */}
             {loading ? (
-                <div style={{ textAlign: 'center', padding: '2rem' }}>Loading...</div>
+                <div style={{ textAlign: 'center', padding: '2rem' }}>
+                    {!navigator.onLine && exercises.length === 0 ? (
+                        <div style={{ color: 'var(--text-dim)' }}>
+                            <h3>You are offline</h3>
+                            <p>Connect to the internet to load this workout.</p>
+                        </div>
+                    ) : (
+                        "Loading..."
+                    )}
+                </div>
             ) : (
                 <div style={{ paddingBottom: '160px' }}>
                     {exercises.length === 0 && (
