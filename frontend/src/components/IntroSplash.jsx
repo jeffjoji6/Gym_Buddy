@@ -51,6 +51,16 @@ export default function IntroSplash({ onComplete }) {
                 }}>
                     Gym Buddy
                 </h1>
+                <div style={{
+                    marginTop: '40px',
+                    fontSize: '0.85rem',
+                    color: 'var(--text-dim)',
+                    letterSpacing: '1px',
+                    textTransform: 'uppercase',
+                    fontWeight: '600'
+                }}>
+                    Powered by Lighthouse Labs
+                </div>
             </div>
         </div>
     );

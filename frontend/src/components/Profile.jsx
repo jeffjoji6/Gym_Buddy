@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { ChevronLeft, User, Ruler, Weight, Heart, Save, Target } from 'lucide-react';
+import { ChevronLeft, User, Ruler, Weight, Heart, Save, Target, Bot } from 'lucide-react';
 import { useUser } from '../context/UserContext';
+import { useAI } from '../context/AIContext';
 import { getUserProfile, updateUserProfile } from '../services/api';
+import { PERSONAS } from '../services/gemini';
 
 const bmiCategory = (bmi) => {
     if (bmi < 18.5) return { label: 'Underweight', color: '#4ecdc4', emoji: '🦴' };
@@ -13,6 +15,7 @@ const bmiCategory = (bmi) => {
 
 export default function Profile() {
     const { user } = useUser();
+    const { persona, setPersona } = useAI();
     const [heightCm, setHeightCm] = useState('');
     const [weightKg, setWeightKg] = useState('');
     const [age, setAge] = useState('');
@@ -277,6 +280,51 @@ export default function Profile() {
                             </button>
                         ))}
                     </div>
+                </div>
+            </div>
+
+            {/* AI Trainer Persona Picker */}
+            <div className="card" style={{ padding: '16px', marginTop: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
+                    <Bot size={18} color="var(--primary-color)" />
+                    <div>
+                        <div style={{ fontWeight: '600' }}>AI Trainer Persona</div>
+                        <div style={{ fontSize: '0.78rem', color: 'var(--text-dim)', marginTop: '2px' }}>Choose who coaches you inside Gym Buddy</div>
+                    </div>
+                </div>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                    {Object.entries(PERSONAS).map(([key, p]) => {
+                        const isActive = persona === key;
+                        return (
+                            <button
+                                key={key}
+                                onClick={() => setPersona(key)}
+                                style={{
+                                    flex: 1, padding: '14px 10px',
+                                    borderRadius: '14px',
+                                    border: isActive ? '2px solid var(--primary-color)' : '1px solid rgba(255,255,255,0.1)',
+                                    background: isActive ? 'rgba(187,134,252,0.12)' : 'rgba(255,255,255,0.03)',
+                                    cursor: 'pointer', transition: 'all 0.2s',
+                                    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px',
+                                }}
+                            >
+                                <img 
+                                    src={p.avatar} 
+                                    alt={p.name} 
+                                    style={{ 
+                                        width: '54px', height: '54px', 
+                                        borderRadius: '50%', objectFit: 'cover',
+                                        border: isActive ? '2px solid var(--primary-color)' : '1px solid rgba(255,255,255,0.2)',
+                                        boxShadow: isActive ? '0 4px 12px rgba(187,134,252,0.4)' : 'none'
+                                    }} 
+                                    onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'block'; }}
+                                />
+                                <span style={{ fontSize: '1.8rem', display: 'none' }}>{p.emoji}</span>
+                                <span style={{ fontWeight: '700', fontSize: '0.95rem', color: isActive ? 'var(--primary-color)' : 'var(--text-color)' }}>{p.name}</span>
+                                <span style={{ fontSize: '0.7rem', color: 'var(--text-dim)', textAlign: 'center', lineHeight: 1.3 }}>{p.tagline}</span>
+                            </button>
+                        );
+                    })}
                 </div>
             </div>
 

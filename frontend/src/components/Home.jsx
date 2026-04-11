@@ -289,7 +289,7 @@ export default function Home() {
             <button
                 style={{
                     position: 'fixed',
-                    bottom: '28px',
+                    bottom: '94px',
                     right: '24px',
                     width: '52px',
                     height: '52px',

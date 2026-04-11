@@ -394,8 +394,7 @@ export default function GlobalTimer() {
                                 WebkitTapHighlightColor: 'transparent'
                             }}
                         >
-                            <Square size={22} fill="#ff3b30" aria-hidden="true" />
-                            <span style={{ fontSize: '0.7rem' }}>Stop</span>
+                            <Square size={26} fill="#ff3b30" aria-hidden="true" />
                         </button>
                     ) : (
                         <button
@@ -414,8 +413,7 @@ export default function GlobalTimer() {
                                 WebkitTapHighlightColor: 'transparent'
                             }}
                         >
-                            <Play size={22} fill="#34c759" aria-hidden="true" />
-                            <span style={{ fontSize: '0.7rem' }}>Start</span>
+                            <Play size={26} fill="#34c759" aria-hidden="true" style={{ marginLeft: '4px' }} />
                         </button>
                     )}
 

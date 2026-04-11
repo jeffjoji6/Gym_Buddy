@@ -5,6 +5,7 @@ import { ChevronLeft, ChevronDown, ChevronUp, Check, Trash2, Trophy, Clock, BarC
 import { useUser } from '../context/UserContext';
 import { useNotifications } from '../context/NotificationContext';
 import { useTimer } from '../context/TimerContext';
+import { useAI } from '../context/AIContext';
 import EditSetModal from './EditSetModal';
 import WorkoutSummaryModal from './WorkoutSummaryModal';
 
@@ -301,6 +302,8 @@ export default function WorkoutView() {
     
     const { user } = useUser();
     const { addNotification } = useNotifications();
+    const { workoutStarted: aiWorkoutStarted } = useAI();
+    const hasTriggeredAI = useRef(false); // only trigger once per session
 
     const [exercises, setExercises] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -456,6 +459,13 @@ export default function WorkoutView() {
                 }
                 return ex;
             }));
+
+            // Trigger AI workout coach on the very first set of the session
+            if (!hasTriggeredAI.current) {
+                hasTriggeredAI.current = true;
+                aiWorkoutStarted(type, exercises);
+            }
+
             return true;
         } else {
             // Rollback optimistic update

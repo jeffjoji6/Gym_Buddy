@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { User, LogOut, Bell, Menu, X, Home, LayoutDashboard, Play, Timer as TimerIcon } from 'lucide-react';
 import AppLogo from './AppLogo';
+import AIAssistant from './AIAssistant';
 import { useUser } from '../context/UserContext';
 import { useNotifications } from '../context/NotificationContext';
 import { useTimer } from '../context/TimerContext';
@@ -300,6 +301,7 @@ export default function Layout({ children }) {
 
                 <main>{children}</main>
             </div>
+            <AIAssistant />
         </>
     );
 }

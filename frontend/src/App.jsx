@@ -7,6 +7,7 @@ import InstallPrompt from './components/InstallPrompt';
 import { UserProvider, useUser } from './context/UserContext';
 import { NotificationProvider } from './context/NotificationContext';
 import { TimerProvider } from './context/TimerContext';
+import { AIProvider } from './context/AIContext';
 import GlobalTimer from './components/GlobalTimer';
 import IntroSplash from './components/IntroSplash';
 const lazyWithRetry = (componentImport) =>
@@ -71,21 +72,23 @@ function AuthenticatedRoutes() {
 
     return (
         <NotificationProvider user={user}>
-            <TimerProvider>
-                <Layout>
-                <Suspense fallback={<div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-dim)' }}>Loading...</div>}>
-                    <Routes>
-                        <Route path="/" element={<Home />} />
-                        <Route path="/workout/:type" element={<WorkoutView />} />
-                        <Route path="/dashboard" element={<Dashboard />} />
-                        <Route path="/profile" element={<Profile />} />
-                        <Route path="*" element={<Navigate to="/" />} />
-                    </Routes>
-                </Suspense>
-                <InstallPrompt />
-                <GlobalTimer />
-            </Layout>
-            </TimerProvider>
+            <AIProvider>
+                <TimerProvider>
+                    <Layout>
+                    <Suspense fallback={<div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-dim)' }}>Loading...</div>}>
+                        <Routes>
+                            <Route path="/" element={<Home />} />
+                            <Route path="/workout/:type" element={<WorkoutView />} />
+                            <Route path="/dashboard" element={<Dashboard />} />
+                            <Route path="/profile" element={<Profile />} />
+                            <Route path="*" element={<Navigate to="/" />} />
+                        </Routes>
+                    </Suspense>
+                    <InstallPrompt />
+                    <GlobalTimer />
+                </Layout>
+                </TimerProvider>
+            </AIProvider>
         </NotificationProvider>
     );
 }
