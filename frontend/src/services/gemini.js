@@ -1,6 +1,6 @@
-// Gemini Flash Latest via REST API — most stable for quotas
+// Using Gemini Flash Lite Latest via REST API for significantly higher rate limits
 const API_URL =
-    'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent';
+    'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-lite-latest:generateContent';
 
 export const PERSONAS = {
     garima: {
