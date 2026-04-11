@@ -9,11 +9,31 @@ import { NotificationProvider } from './context/NotificationContext';
 import { TimerProvider } from './context/TimerContext';
 import GlobalTimer from './components/GlobalTimer';
 import IntroSplash from './components/IntroSplash';
-const Home = lazy(() => import('./components/Home'));
-const WorkoutView = lazy(() => import('./components/WorkoutView'));
-const Dashboard = lazy(() => import('./components/Dashboard'));
-const Profile = lazy(() => import('./components/Profile'));
-const Onboarding = lazy(() => import('./components/Onboarding'));
+const lazyWithRetry = (componentImport) =>
+    lazy(async () => {
+        const pageHasAlreadyBeenForceRefreshed = JSON.parse(
+            window.sessionStorage.getItem('page-has-been-force-refreshed') || 'false'
+        );
+
+        try {
+            const component = await componentImport();
+            window.sessionStorage.setItem('page-has-been-force-refreshed', 'false');
+            return component;
+        } catch (error) {
+            if (!pageHasAlreadyBeenForceRefreshed) {
+                // Manual check for chunk load errors or fetch errors
+                window.sessionStorage.setItem('page-has-been-force-refreshed', 'true');
+                return window.location.reload();
+            }
+            throw error;
+        }
+    });
+
+const Home = lazyWithRetry(() => import('./components/Home'));
+const WorkoutView = lazyWithRetry(() => import('./components/WorkoutView'));
+const Dashboard = lazyWithRetry(() => import('./components/Dashboard'));
+const Profile = lazyWithRetry(() => import('./components/Profile'));
+const Onboarding = lazyWithRetry(() => import('./components/Onboarding'));
 
 // Authenticated Wrapper to check if user is logged in
 function AuthenticatedRoutes() {
