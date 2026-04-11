@@ -436,3 +436,11 @@ input {
   animation: slideUp 0.4s ease-out;
   box-shadow: 0 -4px 20px rgba(3, 218, 198, 0.3);
 }
+@keyframes typingDot {
+  0%, 60%, 100% {
+    transform: translateY(0);
+  }
+  30% {
+    transform: translateY(-4px);
+  }
+}

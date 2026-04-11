@@ -1,7 +1,79 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, X, Mic, MicOff, Bot } from 'lucide-react';
+import { Send, X, Mic, MicOff, Bot, Copy, Check } from 'lucide-react';
 import { useAI } from '../context/AIContext';
 import { PERSONAS } from '../services/gemini';
+
+// ─── Sound Effects ─────────────────────────────────────────────────────────
+const audioCtxRef = { current: null };
+function getAudioCtx() {
+    if (!audioCtxRef.current) {
+        audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    return audioCtxRef.current;
+}
+
+function playSendSound() {
+    try {
+        const ctx = getAudioCtx();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(400, ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(600, ctx.currentTime + 0.1);
+        gain.gain.setValueAtTime(0, ctx.currentTime);
+        gain.gain.linearRampToValueAtTime(0.2, ctx.currentTime + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.1);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.1);
+    } catch (e) { /* fallback quiet */ }
+}
+
+function playReceiveSound() {
+    try {
+        const ctx = getAudioCtx();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(800, ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(1200, ctx.currentTime + 0.15);
+        gain.gain.setValueAtTime(0, ctx.currentTime);
+        gain.gain.linearRampToValueAtTime(0.3, ctx.currentTime + 0.03);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.15);
+    } catch (e) { /* fallback quiet */ }
+}
+
+function playAlertSound() {
+    try {
+        const ctx = getAudioCtx();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(660, ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.1);
+        setTimeout(() => {
+            const osc2 = ctx.createOscillator();
+            osc2.type = 'sine';
+            osc2.frequency.setValueAtTime(880, ctx.currentTime);
+            osc2.frequency.exponentialRampToValueAtTime(1100, ctx.currentTime + 0.15);
+            osc2.connect(gain);
+            osc2.start();
+            osc2.stop(ctx.currentTime + 0.15);
+        }, 100);
+        gain.gain.setValueAtTime(0, ctx.currentTime);
+        gain.gain.linearRampToValueAtTime(0.2, ctx.currentTime + 0.03);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.3);
+    } catch (e) { /* fallback quiet */ }
+}
 
 function TypingDots() {
     return (
@@ -17,22 +89,32 @@ function TypingDots() {
     );
 }
 
-function Message({ msg }) {
+function Message({ msg, personaAvatar }) {
     const isUser = msg.role === 'user';
     const isSystem = msg.role === 'system';
+    const [copied, setCopied] = useState(false);
+
+    const handleCopy = () => {
+        if (isUser || isSystem) return;
+        navigator.clipboard.writeText(msg.text);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+    };
 
     if (isSystem) {
         return (
             <div style={{
-                textAlign: 'center', margin: '8px 0',
-                fontSize: '0.78rem', color: '#03dac6',
-                background: 'rgba(3,218,198,0.08)',
-                border: '1px solid rgba(3,218,198,0.2)',
-                padding: '8px 16px', borderRadius: '20px',
-                display: 'inline-block', maxWidth: '90%',
-                marginLeft: '5%',
+                textAlign: 'center', margin: '16px 0',
+                fontSize: '0.75rem', color: 'var(--text-dim)',
+                textTransform: 'uppercase', letterSpacing: '1px',
+                display: 'flex', justifyContent: 'center'
             }}>
-                {msg.text}
+                <span style={{ 
+                    background: 'rgba(255,255,255,0.05)', 
+                    padding: '4px 12px', borderRadius: '12px' 
+                }}>
+                    {msg.text}
+                </span>
             </div>
         );
     }
@@ -41,23 +123,59 @@ function Message({ msg }) {
         <div style={{
             display: 'flex',
             justifyContent: isUser ? 'flex-end' : 'flex-start',
-            marginBottom: '10px',
-        }}>
-            <div style={{
-                maxWidth: '78%',
-                padding: '10px 14px',
-                borderRadius: isUser ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
-                background: isUser
-                    ? 'linear-gradient(135deg, #bb86fc, #7c4dff)'
-                    : 'rgba(255,255,255,0.07)',
-                border: isUser ? 'none' : '1px solid rgba(255,255,255,0.08)',
-                color: '#fff',
-                fontSize: '0.9rem',
-                lineHeight: '1.5',
-                wordBreak: 'break-word',
-                boxShadow: isUser ? '0 4px 12px rgba(187,134,252,0.25)' : 'none',
-            }}>
+            marginBottom: '16px',
+            alignItems: 'flex-end', gap: '8px'
+        }} className="animate-slide-up">
+            
+            {/* Avatar for AI messages */}
+            {!isUser && (
+                <img 
+                    src={personaAvatar} 
+                    alt="AI" 
+                    style={{ 
+                        width: '28px', height: '28px', 
+                        borderRadius: '50%', objectFit: 'cover',
+                        flexShrink: 0, border: '1px solid rgba(255,255,255,0.1)'
+                    }} 
+                />
+            )}
+
+            <div 
+                onClick={handleCopy}
+                style={{
+                    maxWidth: '75%',
+                    position: 'relative',
+                    padding: '12px 16px',
+                    // iMessage style tails
+                    borderRadius: isUser ? '20px 20px 4px 20px' : '20px 20px 20px 4px',
+                    background: isUser
+                        ? 'linear-gradient(135deg, #bb86fc, #7c4dff)'
+                        : 'rgba(255,255,255,0.09)',
+                    color: '#fff',
+                    fontSize: '0.95rem',
+                    lineHeight: '1.45',
+                    wordBreak: 'break-word',
+                    boxShadow: isUser 
+                        ? '0 4px 16px rgba(187,134,252,0.3)' 
+                        : '0 2px 8px rgba(0,0,0,0.2)',
+                    cursor: (!isUser && !isSystem) ? 'pointer' : 'default',
+                    transition: 'all 0.2s ease'
+                }}
+                onMouseEnter={(e) => { if (!isUser) e.currentTarget.style.filter = 'brightness(1.1)'; }}
+                onMouseLeave={(e) => { if (!isUser) e.currentTarget.style.filter = 'brightness(1)'; }}
+            >
                 {msg.text}
+                
+                {copied && (
+                    <div style={{
+                        position: 'absolute', bottom: '-22px', right: '10px',
+                        fontSize: '0.7rem', color: 'var(--success-color)',
+                        display: 'flex', alignItems: 'center', gap: '4px',
+                        animation: 'chatSlideUp 0.2s ease-out'
+                    }}>
+                        <Check size={12} /> Copied
+                    </div>
+                )}
             </div>
         </div>
     );
@@ -95,8 +213,29 @@ export default function AIAssistant() {
         const text = input.trim();
         if (!text) return;
         setInput('');
+        
+        // Reset textarea height instantly
+        if (inputRef.current) {
+            inputRef.current.style.height = 'auto';
+        }
+        
+        playSendSound();
         sendMessage(text);
     };
+
+    // Play receive sound when a new message from 'model' or 'system' appears
+    const previousMessagesLength = useRef(messages.length);
+    useEffect(() => {
+        if (messages.length > previousMessagesLength.current) {
+            const lastMsg = messages[messages.length - 1];
+            if (lastMsg.role === 'model') {
+                playReceiveSound();
+            } else if (lastMsg.role === 'system') {
+                playAlertSound();
+            }
+        }
+        previousMessagesLength.current = messages.length;
+    }, [messages]);
 
     const handleKeyDown = (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
@@ -329,16 +468,27 @@ export default function AIAssistant() {
                             )}
 
                             {messages.map(msg => (
-                                <Message key={msg.id} msg={msg} />
+                                <Message key={msg.id} msg={msg} personaAvatar={currentPersona.avatar} />
                             ))}
 
                             {isTyping && (
-                                <div style={{ display: 'flex', marginBottom: '10px' }}>
+                                <div style={{ 
+                                    display: 'flex', marginBottom: '16px', alignItems: 'flex-end', gap: '8px' 
+                                }} className="animate-slide-up">
+                                    <img 
+                                        src={currentPersona.avatar} 
+                                        alt="AI" 
+                                        style={{ 
+                                            width: '28px', height: '28px', 
+                                            borderRadius: '50%', objectFit: 'cover', flexShrink: 0,
+                                            border: '1px solid rgba(255,255,255,0.1)'
+                                        }} 
+                                    />
                                     <div style={{
-                                        padding: '10px 14px',
-                                        borderRadius: '18px 18px 18px 4px',
-                                        background: 'rgba(255,255,255,0.07)',
-                                        border: '1px solid rgba(255,255,255,0.08)',
+                                        padding: '12px 16px',
+                                        borderRadius: '20px 20px 20px 4px',
+                                        background: 'rgba(255,255,255,0.09)',
+                                        boxShadow: '0 2px 8px rgba(0,0,0,0.2)'
                                     }}>
                                         <TypingDots />
                                     </div>

@@ -102,10 +102,16 @@ export function AIProvider({ children }) {
             const currentPersona = PERSONAS[persona] || PERSONAS.garima;
             const ctx = userContext || { userName: user || 'there' };
             const systemPrompt = currentPersona.buildSystemPrompt(ctx);
-
-            // Send to Gemini (pass history MINUS the last user message, which we add inside sendMessage)
-            const historyForRequest = geminiHistory.current.slice(0, -1);
-            const reply = await geminiSend(historyForRequest, text, systemPrompt);
+            
+            let reply;
+            // Easter egg check
+            if (persona === 'garima' && text.toLowerCase().includes('bitch')) {
+                reply = "such a bitch asss";
+            } else {
+                // Send to Gemini (pass history MINUS the last user message, which we add inside sendMessage)
+                const historyForRequest = geminiHistory.current.slice(0, -1);
+                reply = await geminiSend(historyForRequest, text, systemPrompt);
+            }
 
             // Add model reply to UI and history
             addMessage('model', reply);
