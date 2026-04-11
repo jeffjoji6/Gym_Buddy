@@ -1,8 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Dumbbell, User, LogOut, Bell, Menu, X, Home, LayoutDashboard, Play } from 'lucide-react';
+import { User, LogOut, Bell, Menu, X, Home, LayoutDashboard, Play, Timer as TimerIcon } from 'lucide-react';
+import AppLogo from './AppLogo';
 import { useUser } from '../context/UserContext';
 import { useNotifications } from '../context/NotificationContext';
+import { useTimer } from '../context/TimerContext';
 
 function getTimeAgo(ts) {
     const diff = Date.now() - new Date(ts).getTime();
@@ -18,6 +20,7 @@ function getTimeAgo(ts) {
 export default function Layout({ children }) {
     const { user, logout } = useUser();
     const { notifications, unreadCount, markAllRead, clearAll, addNotification } = useNotifications();
+    const { openTimerMenu } = useTimer();
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [showNotifs, setShowNotifs] = useState(false);
     const [isOffline, setIsOffline] = useState(!navigator.onLine);
@@ -91,11 +94,23 @@ export default function Layout({ children }) {
                 <header className="header">
                     <Link to="/" style={{ textDecoration: 'none', color: 'inherit' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <Dumbbell color="var(--primary-color)" size={22} />
+                            <AppLogo size={24} />
                             <span style={{ fontSize: '1.15rem', fontWeight: '800', letterSpacing: '0.3px' }}>Gym Buddy</span>
                         </div>
                     </Link>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        {/* Standalone Timer */}
+                        <button
+                            onClick={openTimerMenu}
+                            style={{
+                                background: 'transparent', border: 'none', color: 'inherit',
+                                cursor: 'pointer', padding: '4px', display: 'flex',
+                                alignItems: 'center'
+                            }}
+                        >
+                            <TimerIcon size={20} />
+                        </button>
+                        
                         {/* Notification Bell */}
                         <div style={{ position: 'relative' }} ref={notifRef}>
                             <button
@@ -205,7 +220,7 @@ export default function Layout({ children }) {
                         padding: '16px 20px', borderBottom: '1px solid var(--surface-highlight)'
                     }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <Dumbbell color="var(--primary-color)" size={20} />
+                            <AppLogo size={20} />
                             <span style={{ fontWeight: '800', fontSize: '1rem' }}>Gym Buddy</span>
                         </div>
                         <button

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { ChevronLeft, User, Ruler, Weight, Heart, Save } from 'lucide-react';
+import { ChevronLeft, User, Ruler, Weight, Heart, Save, Target } from 'lucide-react';
 import { useUser } from '../context/UserContext';
 import { getUserProfile, updateUserProfile } from '../services/api';
 
@@ -17,6 +17,7 @@ export default function Profile() {
     const [weightKg, setWeightKg] = useState('');
     const [age, setAge] = useState('');
     const [gender, setGender] = useState('');
+    const [goal, setGoal] = useState('Maintain');
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [saved, setSaved] = useState(false);
@@ -31,6 +32,7 @@ export default function Profile() {
                 setWeightKg(data.weight_kg || '');
                 setAge(data.age || '');
                 setGender(data.gender || '');
+                if (data.goal) setGoal(data.goal);
             }
             setLoading(false);
         };
@@ -46,13 +48,33 @@ export default function Profile() {
     // BMI gauge position (15-40 range mapped to 0-100%)
     const gaugePercent = bmi ? Math.min(100, Math.max(0, ((parseFloat(bmi) - 15) / 25) * 100)) : 0;
 
+    let tdee = null;
+    let calorieTarget = null;
+    if (heightCm && weightKg && age && gender) {
+        const h = parseFloat(heightCm);
+        const w = parseFloat(weightKg);
+        const a = parseInt(age);
+        if (h && w && a) {
+            let bmr = (10 * w) + (6.25 * h) - (5 * a);
+            if (gender === 'Male') bmr += 5;
+            else bmr -= 161; 
+            
+            tdee = Math.round(bmr * 1.55); // moderate activity
+            
+            if (goal === 'Bulk') calorieTarget = tdee + 300;
+            else if (goal === 'Cut') calorieTarget = tdee - 500;
+            else calorieTarget = tdee;
+        }
+    }
+
     const handleSave = async () => {
         setSaving(true);
         await updateUserProfile(user, {
             height_cm: parseFloat(heightCm) || null,
             weight_kg: parseFloat(weightKg) || null,
             age: parseInt(age) || null,
-            gender: gender || null
+            gender: gender || null,
+            goal: goal || null
         });
         setSaving(false);
         setSaved(true);
@@ -144,6 +166,45 @@ export default function Profile() {
 
             {/* Input Fields */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+
+                {/* Goal Selector */}
+                <div className="card" style={{ padding: '16px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
+                        <Target size={18} color="var(--primary-color)" />
+                        <label style={{ fontWeight: '600' }}>Fitness Goal</label>
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px', marginBottom: tdee ? '16px' : '0' }}>
+                        {['Bulk', 'Cut', 'Maintain'].map(g => (
+                            <button
+                                key={g}
+                                onClick={() => setGoal(g)}
+                                style={{
+                                    flex: 1, padding: '10px', borderRadius: '10px',
+                                    border: goal === g ? '2px solid var(--primary-color)' : '1px solid var(--surface-highlight)',
+                                    background: goal === g ? 'rgba(187, 134, 252, 0.15)' : 'var(--surface-color)',
+                                    color: goal === g ? 'var(--primary-color)' : 'var(--text-dim)',
+                                    fontWeight: goal === g ? '700' : '400',
+                                    cursor: 'pointer', fontSize: '0.9rem', transition: 'all 0.2s'
+                                }}
+                            >
+                                {g}
+                            </button>
+                        ))}
+                    </div>
+
+                    {tdee && (
+                        <div style={{ background: 'rgba(255,255,255,0.03)', padding: '12px', borderRadius: '8px', marginTop: '12px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                                <span style={{ color: 'var(--text-dim)', fontSize: '0.85rem' }}>Maintenance TDEE:</span>
+                                <span style={{ fontWeight: 'bold' }}>~{tdee} kcal</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                <span style={{ color: 'var(--primary-color)', fontSize: '0.85rem', fontWeight: 'bold' }}>Target for {goal}:</span>
+                                <span style={{ color: 'var(--primary-color)', fontWeight: 'bold' }}>~{calorieTarget} kcal</span>
+                            </div>
+                        </div>
+                    )}
+                </div>
                 <div className="card" style={{ padding: '16px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
                         <Ruler size={18} color="var(--primary-color)" />

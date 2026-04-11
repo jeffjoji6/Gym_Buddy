@@ -1,16 +1,47 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowRight, Activity, Calendar, Trash2 } from 'lucide-react';
+import { ArrowRight, Activity, Calendar, Trash2, X, Scale } from 'lucide-react';
 import { useUser } from '../context/UserContext';
 
 export default function Home() {
     const navigate = useNavigate();
-    const { user: currentUser, activeWeek, setActiveWeek } = useUser();
+    const { user: currentUser, selectedDate, setSelectedDate } = useUser();
 
     const [showCreate, setShowCreate] = useState(false);
     const [newWorkoutName, setNewWorkoutName] = useState('');
     const [workouts, setWorkouts] = useState([]);
     const [isEditing, setIsEditing] = useState(false);
+    const [completedDates, setCompletedDates] = useState(new Set());
+
+    const [weightPrompt, setWeightPrompt] = useState(false);
+    const [quickWeight, setQuickWeight] = useState('');
+    const [savingWeight, setSavingWeight] = useState(false);
+
+    React.useEffect(() => {
+        if (!currentUser) return;
+        const todayStr = new Date().toDateString();
+        const isMonday = new Date().getDay() === 1;
+        const lastPrompt = localStorage.getItem(`gym_buddy_weighin_${currentUser}`);
+        
+        if (isMonday && lastPrompt !== todayStr) {
+            setWeightPrompt(true);
+        }
+    }, [currentUser]);
+
+    const handleQuickWeight = async () => {
+        if (!quickWeight) return;
+        setSavingWeight(true);
+        const { updateUserProfile } = await import('../services/api');
+        await updateUserProfile(currentUser, { weight_kg: parseFloat(quickWeight) });
+        localStorage.setItem(`gym_buddy_weighin_${currentUser}`, new Date().toDateString());
+        setWeightPrompt(false);
+        setSavingWeight(false);
+    };
+
+    const dismissPrompt = () => {
+        localStorage.setItem(`gym_buddy_weighin_${currentUser}`, new Date().toDateString());
+        setWeightPrompt(false);
+    };
 
     React.useEffect(() => {
         const fetchWorkouts = async () => {
@@ -26,6 +57,11 @@ export default function Home() {
                 'Legs': { icon: '🦵', color: '#ffe66d' }
             };
 
+            // Fetch completed dates for calendar dot markers
+            const { getCompletedDates } = await import('../services/api');
+            const dates = await getCompletedDates(currentUser);
+            setCompletedDates(dates);
+
             const mapped = data.workouts.map(w => ({
                 type: w.name,
                 is_global: w.is_global,
@@ -35,7 +71,7 @@ export default function Home() {
             setWorkouts(mapped);
         };
         fetchWorkouts();
-    }, [currentUser]);
+    }, [currentUser, selectedDate]);
 
     const handleCreate = async (e) => {
         e.preventDefault();
@@ -65,7 +101,7 @@ export default function Home() {
 
     const handleWorkoutClick = (workout) => {
         // Go directly to Split A — no popup needed
-        navigate(`/workout/${workout.type}?week=${activeWeek}&split=A`);
+        navigate(`/workout/${workout.type}?date=${selectedDate}&split=A`);
     };
     const handleDeleteWorkout = async (workoutName) => {
         if (window.confirm(`Are you sure you want to delete the "${workoutName}" workout?`)) {
@@ -90,29 +126,118 @@ export default function Home() {
     };
     return (
         <div className="animate-fade-in">
-            <div className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <Calendar size={16} />
-                    <span style={{ fontWeight: '600' }}>Active Week</span>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <button className="button-secondary" onClick={() => setActiveWeek(activeWeek > 1 ? activeWeek - 1 : 1)}>-</button>
-                    <span style={{ fontSize: '1.2rem', fontWeight: 'bold' }}>{activeWeek}</span>
-                    <button className="button-secondary" onClick={() => setActiveWeek(activeWeek + 1)}>+</button>
-                    <div style={{ width: '12px' }}></div>
-                    <button
-                        onClick={() => setIsEditing(!isEditing)}
-                        style={{
-                            background: 'transparent',
-                            border: 'none',
-                            color: 'var(--primary-color)',
-                            fontWeight: 'bold',
-                            fontSize: '1rem',
-                            cursor: 'pointer'
-                        }}
-                    >
-                        {isEditing ? 'Done' : 'Edit'}
+            {weightPrompt && (
+                <div style={{
+                    background: 'rgba(3, 218, 198, 0.1)',
+                    border: '1px solid rgba(3, 218, 198, 0.3)',
+                    borderRadius: '16px',
+                    padding: '16px',
+                    marginBottom: '20px',
+                    position: 'relative'
+                }}>
+                    <button onClick={dismissPrompt} style={{ position: 'absolute', top: '12px', right: '12px', background: 'transparent', border: 'none', color: 'var(--text-dim)', cursor: 'pointer' }}>
+                        <X size={18} />
                     </button>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--success-color)', fontWeight: 'bold', marginBottom: '8px' }}>
+                        <Scale size={20} /> Hey {currentUser}!
+                    </div>
+                    <div style={{ fontSize: '0.9rem', color: 'var(--text-color)', marginBottom: '12px' }}>
+                        Start of a new week — have you checked your weight today?
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                        <input 
+                            type="number" 
+                            inputMode="decimal"
+                            value={quickWeight} 
+                            onChange={e => setQuickWeight(e.target.value)} 
+                            placeholder="Weight (kg)"
+                            style={{ flex: 1, padding: '10px' }}
+                        />
+                        <button 
+                            className="button-primary" 
+                            onClick={handleQuickWeight} 
+                            disabled={savingWeight || !quickWeight}
+                            style={{ padding: '10px 16px' }}
+                        >
+                            {savingWeight ? 'Saving...' : 'Log It'}
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            <div className="card" style={{ padding: '16px 12px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', padding: '0 4px' }}>
+                    <span style={{ fontWeight: 'bold' }}>
+                        {(() => {
+                            if (!selectedDate) return '';
+                            const [y, m, d] = selectedDate.split('-');
+                            return new Date(y, m - 1, d).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+                        })()}
+                    </span>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                        <button className="button-secondary" 
+                            style={{ padding: '4px 10px', fontSize: '0.8rem', borderRadius: '12px' }}
+                            onClick={() => {
+                                const now = new Date();
+                                const dateStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+                                setSelectedDate(dateStr);
+                            }}>
+                            Today
+                        </button>
+                        <button
+                            onClick={() => setIsEditing(!isEditing)}
+                            style={{
+                                background: 'transparent', border: 'none', color: 'var(--primary-color)',
+                                fontWeight: 'bold', fontSize: '1rem', cursor: 'pointer', paddingLeft: '8px'
+                            }}
+                        >
+                            {isEditing ? 'Done' : 'Edit'}
+                        </button>
+                    </div>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '4px' }}>
+                    {(() => {
+                        if (!selectedDate) return null;
+                        const [by, bm, bd] = selectedDate.split('-');
+                        const baseDate = new Date(by, bm - 1, bd);
+                        const days = [];
+                        for(let i = -3; i <= 3; i++) {
+                            const temp = new Date(baseDate);
+                            temp.setDate(temp.getDate() + i);
+                            days.push(temp);
+                        }
+                        
+                        const now = new Date();
+                        const todayStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+
+                        return days.map(d => {
+                            const dateStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+                            const isSelected = dateStr === selectedDate;
+                            const isToday = dateStr === todayStr;
+                            const hasWorkout = completedDates.has(dateStr);
+                            const dayName = d.toLocaleDateString('en-US', { weekday: 'short' });
+                            
+                            return (
+                                <button 
+                                    key={dateStr}
+                                    onClick={() => setSelectedDate(dateStr)}
+                                    style={{
+                                        flex: 1, padding: '8px 4px 12px 4px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px',
+                                        background: isSelected ? 'var(--primary-color)' : 'transparent',
+                                        borderRadius: '12px', border: 'none',
+                                        color: isSelected ? '#000' : 'var(--text-color)',
+                                        cursor: 'pointer', position: 'relative'
+                                    }}
+                                >
+                                    <span style={{ fontSize: '0.75rem', color: isSelected ? 'rgba(0,0,0,0.6)' : isToday ? 'var(--primary-color)' : 'var(--text-dim)', fontWeight: 'bold' }}>{dayName}</span>
+                                    <span style={{ fontSize: '1.25rem', fontWeight: 'bold', color: isToday && !isSelected ? 'var(--primary-color)' : 'inherit' }}>{d.getDate()}</span>
+                                    {hasWorkout && (
+                                        <div style={{ width: '5px', height: '5px', borderRadius: '50%', background: isSelected ? 'rgba(0,0,0,0.6)' : 'var(--success-color)', position: 'absolute', bottom: '6px' }} />
+                                    )}
+                                </button>
+                            );
+                        });
+                    })()}
                 </div>
             </div>
 

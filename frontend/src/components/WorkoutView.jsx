@@ -1,15 +1,18 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useSearchParams, Link } from 'react-router-dom';
-import { getWorkout, logSet, updateSet, deleteSet, deleteExercise, updateExerciseNotes, getCompletedWeeks } from '../services/api';
+import { getWorkout, logSet, updateSet, deleteSet, deleteExercise, updateExerciseNotes } from '../services/api';
 import { ChevronLeft, ChevronDown, ChevronUp, Check, Trash2, Trophy, Clock, BarChart2 } from 'lucide-react';
 import { useUser } from '../context/UserContext';
 import { useNotifications } from '../context/NotificationContext';
+import { useTimer } from '../context/TimerContext';
 import EditSetModal from './EditSetModal';
+import WorkoutSummaryModal from './WorkoutSummaryModal';
 
 
-const ExerciseCard = React.memo(({ exercise, onLog, onUpdate, onDelete, onDeleteExercise, onMoveUp, onMoveDown, week, isEditing, onUpdateNotes, workoutType, user, split }) => {
+const ExerciseCard = React.memo(({ exercise, onLog, onUpdate, onDelete, onDeleteExercise, onMoveUp, onMoveDown, isEditing, onUpdateNotes, workoutType, user, split }) => {
     const [expanded, setExpanded] = useState(false);
     const sets = exercise.sets || [];
+    const { startRestTimer } = useTimer() || {};
 
     const [weight, setWeight] = useState('');
     const [reps, setReps] = useState('');
@@ -32,6 +35,7 @@ const ExerciseCard = React.memo(({ exercise, onLog, onUpdate, onDelete, onDelete
             setReps('');
             setJustLogged(true);
             setTimeout(() => setJustLogged(false), 500);
+            if (startRestTimer) startRestTimer(90);
         }
     };
 
@@ -46,6 +50,15 @@ const ExerciseCard = React.memo(({ exercise, onLog, onUpdate, onDelete, onDelete
     };
 
     const setsComplete = sets.length >= 3;
+
+    let overloadTip = null;
+    if (exercise.prev_week_sets && exercise.prev_week_sets.length > 0) {
+        const topSet = exercise.prev_week_sets.reduce((max, s) => {
+            return (parseFloat(s.weight) > parseFloat(max.weight)) ? s : max;
+        }, exercise.prev_week_sets[0]);
+        const nextWeight = parseFloat(topSet.weight) + 2.5; 
+        overloadTip = `💡 Last week: ${topSet.weight}kg × ${topSet.reps} → Try ${nextWeight}kg today!`;
+    }
 
     return (
         <div className={`card ${justLogged ? 'success-pulse' : ''}`} style={{
@@ -155,6 +168,12 @@ const ExerciseCard = React.memo(({ exercise, onLog, onUpdate, onDelete, onDelete
                                     </button>
                                 </div>
                             ))}
+                        </div>
+                    )}
+
+                    {overloadTip && (
+                        <div style={{ background: 'rgba(187, 134, 252, 0.1)', color: 'var(--primary-color)', padding: '10px 14px', borderRadius: '10px', fontSize: '0.85rem', marginBottom: '16px', fontWeight: '500' }}>
+                            {overloadTip}
                         </div>
                     )}
 
@@ -270,12 +289,18 @@ const ExerciseCard = React.memo(({ exercise, onLog, onUpdate, onDelete, onDelete
 export default function WorkoutView() {
     const { type } = useParams();
     const [searchParams, setSearchParams] = useSearchParams();
-    const week = parseInt(searchParams.get('week') || '1');
+    
+    // Default to today using localized string generator
+    const getLocalToday = () => {
+        const d = new Date();
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    };
+    
+    const dateStr = searchParams.get('date') || getLocalToday();
     const split = searchParams.get('split') || 'A';
+    
     const { user } = useUser();
     const { addNotification } = useNotifications();
-
-    const [completedWeeks, setCompletedWeeks] = useState(new Set());
 
     const [exercises, setExercises] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -287,23 +312,18 @@ export default function WorkoutView() {
     const [showAddExercise, setShowAddExercise] = useState(false);
     const [draggedExId, setDraggedExId] = useState(null);
     const [prToast, setPrToast] = useState(null);
+    const [showSummaryModal, setShowSummaryModal] = useState(false);
 
     // Fetch generation counter to prevent stale network responses from overwriting optimistic updates
     const fetchGenRef = useRef(0);
     const optimisticRef = useRef(false);
 
 
-    // Load completed weeks for color coding
-    useEffect(() => {
-        if (!user || !type) return;
-        getCompletedWeeks(user, type).then(setCompletedWeeks);
-    }, [user, type]);
-
     useEffect(() => {
         const load = async () => {
             if (!user) return;
 
-            const cacheKey = `gym_buddy_cache_${type}_${split}_${week}_${user}`;
+            const cacheKey = `gym_buddy_cache_${type}_${split}_${dateStr}_${user}`;
             const cachedData = localStorage.getItem(cacheKey);
             let hasCache = false;
 
@@ -338,7 +358,7 @@ export default function WorkoutView() {
             const thisGen = ++fetchGenRef.current;
 
             try {
-                const data = await getWorkout(type, week, user, split);
+                const data = await getWorkout(type, dateStr, user, split);
 
                 // If a newer fetch was started or optimistic update happened, skip this stale response
                 if (fetchGenRef.current !== thisGen) return;
@@ -378,15 +398,7 @@ export default function WorkoutView() {
             setLoading(false);
         };
         load();
-    }, [type, week, split, trigger, user]);
-
-    // Scroll to active week
-    useEffect(() => {
-        const el = document.getElementById(`week-${week}`);
-        if (el) {
-            el.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
-        }
-    }, [week]);
+    }, [type, dateStr, split, trigger, user]);
 
     const handleLogSet = async (exerciseId, weight, reps) => {
         const newWeight = parseFloat(weight);
@@ -430,7 +442,7 @@ export default function WorkoutView() {
             exercise_id: exerciseId,
             weight: newWeight,
             reps: parseInt(reps),
-            week: week,
+            date: dateStr,
             user: user
         });
 
@@ -551,7 +563,7 @@ export default function WorkoutView() {
         setExercises(newExercises);
 
         // Invalidate the SWR cache so deleted exercise doesn't reappear on next load
-        const cacheKey = `gym_buddy_cache_${type}_${split}_${week}_${user}`;
+        const cacheKey = `gym_buddy_cache_${type}_${split}_${dateStr}_${user}`;
         localStorage.setItem(cacheKey, JSON.stringify(newExercises));
         const newIds = newExercises.map(e => e.id);
         localStorage.setItem(`gym_buddy_order_${type}_${split}`, JSON.stringify(newIds));
@@ -679,29 +691,24 @@ export default function WorkoutView() {
                     })}
                 </div>
 
-                {/* Horizontal Week Selector */}
-                <div style={{ display: 'flex', overflowX: 'auto', whiteSpace: 'nowrap', width: '100%', gap: '12px', padding: '4px 0', scrollbarWidth: 'none', scrollBehavior: 'smooth' }}>
-                    {Array.from({ length: 52 }, (_, i) => i + 1).map(w => (
-                        <div
-                            key={w}
-                            id={`week-${w}`}
-                            onClick={() => { if (navigator.vibrate) navigator.vibrate(10); setSearchParams({ week: w }); }}
-                            style={(() => {
-                                const isCurrent = week === w;
-                                const isDone = !isCurrent && completedWeeks.has(w);
-                                return {
-                                    padding: '8px 16px', borderRadius: '20px',
-                                    background: isCurrent ? 'var(--primary-color)' : isDone ? 'var(--success-color)' : 'var(--surface-highlight)',
-                                    color: isCurrent ? '#000' : isDone ? '#000' : 'var(--text-color)',
-                                    fontWeight: 'bold', cursor: 'pointer', minWidth: '40px', textAlign: 'center',
-                                    transition: 'all 0.2s', flexShrink: 0,
-                                    boxShadow: isDone ? '0 0 8px rgba(3, 218, 198, 0.4)' : 'none'
-                                };
-                            })()}
-                        >
-                            Week {w}
-                        </div>
-                    ))}
+                {/* Date Display */}
+                <div style={{
+                    width: '100%',
+                    textAlign: 'center',
+                    padding: '12px 16px',
+                    borderRadius: '12px',
+                    background: 'var(--primary-color)',
+                    color: '#000',
+                    fontWeight: 'bold',
+                    fontSize: '1rem',
+                    marginBottom: '8px',
+                    boxShadow: '0 4px 12px rgba(187, 134, 252, 0.3)'
+                }}>
+                    {(() => {
+                        const d = new Date(dateStr);
+                        d.setMinutes(d.getMinutes() + d.getTimezoneOffset()); // Fix UTC shift
+                        return d.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' });
+                    })()}
                 </div>
             </div>
 
@@ -750,7 +757,6 @@ export default function WorkoutView() {
                                 workoutType={type}
                                 user={user}
                                 split={split}
-                                week={week}
                                 isEditing={isEditing}
                             />
                         </div>
@@ -772,7 +778,27 @@ export default function WorkoutView() {
                             {isEditing ? 'Done Editing' : 'Edit Exercises'}
                         </button>
                     </div>
+                    
+                    <div style={{ marginTop: '1rem' }}>
+                        <button
+                            className="button-primary"
+                            onClick={() => setShowSummaryModal(true)}
+                            style={{ width: '100%', padding: '16px', fontSize: '1.1rem', background: 'var(--success-color)' }}
+                        >
+                            <Check size={20} /> Finish Workout
+                        </button>
+                    </div>
                 </div>
+            )}
+
+            {showSummaryModal && (
+                <WorkoutSummaryModal 
+                    exercises={exercises} 
+                    type={type} 
+                    date={dateStr} 
+                    split={split} 
+                    onClose={() => setShowSummaryModal(false)} 
+                />
             )}
 
             {/* Add Exercise Modal */}

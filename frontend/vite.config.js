@@ -11,26 +11,27 @@ export default defineConfig({
       devOptions: {
         enabled: true
       },
-      includeAssets: ['favicon.png', 'vite.svg'],
+      includeAssets: ['favicon.png', 'logo.png', 'vite.svg'],
       manifest: {
         name: 'Gym Buddy',
         short_name: 'Gym Buddy',
         description: 'Your personal workout tracker',
-        theme_color: '#ffffff',
-        background_color: '#ffffff',
+        theme_color: '#121212',
+        background_color: '#121212',
         display: 'standalone',
         scope: '/',
         start_url: '/',
         icons: [
           {
-            src: 'favicon.png',
+            src: 'logo.png',
             sizes: '192x192',
             type: 'image/png'
           },
           {
-            src: 'favicon.png',
+            src: 'logo.png',
             sizes: '512x512',
-            type: 'image/png'
+            type: 'image/png',
+            purpose: 'any maskable'
           }
         ]
       },

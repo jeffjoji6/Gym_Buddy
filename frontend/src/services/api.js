@@ -84,7 +84,7 @@ export const deleteUser = async (username) => {
     return { success: true, message: `User ${username} deleted` };
 };
 
-export const getWorkout = async (type, week, user, split = "A") => {
+export const getWorkout = async (type, dateStr, user, split = "A") => {
     // 1. Get Workout ID
     const { data: workout } = await supabase
         .from('workouts')
@@ -94,12 +94,12 @@ export const getWorkout = async (type, week, user, split = "A") => {
         
     if (!workout) return { exercises: [] };
     
-    // 2. Get Exercises
+    // 2. Get Exercises — include exercises matching the split OR with no split set (NULL)
     const { data: exercises } = await supabase
         .from('exercises')
         .select('*')
         .eq('workout_id', workout.id)
-        .eq('split', split)
+        .or(`split.eq.${split},split.is.null`)
         .order('id');
         
     if (!exercises || exercises.length === 0) return { exercises: [] };
@@ -107,23 +107,30 @@ export const getWorkout = async (type, week, user, split = "A") => {
     const exerciseIds = exercises.map(ex => ex.id);
     const userId = await getUserId(user);
 
-    // 3. Fetch all current week sets for these exercises in ONE query
+    // Calculate local Day ranges
+    const startOfDay = new Date(dateStr);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(dateStr);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    // 3. Fetch all current day sets for these exercises
     const { data: currentSets } = await supabase
         .from('sets')
         .select('*')
         .in('exercise_id', exerciseIds)
         .eq('user_id', userId)
-        .eq('week', week)
-        .order('set_number');
+        .gte('timestamp', startOfDay.toISOString())
+        .lte('timestamp', endOfDay.toISOString())
+        .order('timestamp', { ascending: true }); // using timestamp to order sets natively
         
-    // 4. Fetch all previous week sets for these exercises in ONE query
-    const { data: prevSets } = await supabase
+    // 4. Fetch all previous sets older than current day to find "prev_week_sets" (most recent previous session per exercise)
+    const { data: allPrevSets } = await supabase
         .from('sets')
-        .select('exercise_id, weight, reps')
+        .select('exercise_id, weight, reps, timestamp')
         .in('exercise_id', exerciseIds)
         .eq('user_id', userId)
-        .eq('week', week - 1)
-        .order('set_number', { ascending: true });
+        .lt('timestamp', startOfDay.toISOString())
+        .order('timestamp', { ascending: false });
 
     // Group current sets
     const setsByExercise = {};
@@ -134,12 +141,27 @@ export const getWorkout = async (type, week, user, split = "A") => {
         });
     }
 
-    // Group prev sets 
+    // Group previous sets optimally (find most recent recorded day per exercise)
     const prevSetsByExercise = {};
-    if (prevSets) {
-        prevSets.forEach(s => {
-            if (!prevSetsByExercise[s.exercise_id]) prevSetsByExercise[s.exercise_id] = [];
-            prevSetsByExercise[s.exercise_id].push(s);
+    if (allPrevSets) {
+        const getLocalDay = (iso) => {
+            const d = new Date(iso);
+            return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+        };
+        
+        allPrevSets.forEach(s => {
+            const day = getLocalDay(s.timestamp);
+            if (!prevSetsByExercise[s.exercise_id]) {
+                prevSetsByExercise[s.exercise_id] = { day, sets: [] };
+            }
+            if (prevSetsByExercise[s.exercise_id].day === day) {
+                prevSetsByExercise[s.exercise_id].sets.push(s);
+            }
+        });
+        
+        // Reverse them so they are chronological (1st set, 2nd set...)
+        Object.keys(prevSetsByExercise).forEach(k => {
+            prevSetsByExercise[k].sets.reverse();
         });
     }
 
@@ -159,7 +181,7 @@ export const getWorkout = async (type, week, user, split = "A") => {
         return {
             ...ex,
             sets: setsByExercise[ex.id] || [],
-            prev_week_sets: prevSetsByExercise[ex.id] || [],
+            prev_week_sets: prevSetsByExercise[ex.id]?.sets || [],
             setup_notes: notesByExercise[ex.id] ?? ex.setup_notes ?? ''
         };
     });
@@ -187,16 +209,35 @@ export const logSet = async (payload, isSyncing = false) => {
         addToOfflineQueue('logSet', payload);
         return { success: true, message: "Queued offline", data: { id: `offline_${Date.now()}`, ...payload } };
     }
-    const { exercise_id, weight, reps, week, user } = payload;
+    const { exercise_id, weight, reps, date, user } = payload;
     const userId = await getUserId(user);
+
+    // Merge realistic timestamp matching the 'date' assigned by user
+    // If date is today, use accurate Date.now(), else use midnight of date.
+    const now = new Date();
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+    let finalTimestamp;
+    if (date === todayStr) {
+        finalTimestamp = now.toISOString();
+    } else {
+        const d = new Date(date);
+        d.setHours(12, 0, 0, 0); // Noon
+        finalTimestamp = d.toISOString();
+    }
     
-    // Get next set number
+    // Get next set number for context continuity
+    const startOfDay = new Date(date);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(date);
+    endOfDay.setHours(23, 59, 59, 999);
+
     const { count } = await supabase
         .from('sets')
         .select('*', { count: 'exact', head: true })
         .eq('exercise_id', exercise_id)
         .eq('user_id', userId)
-        .eq('week', week);
+        .gte('timestamp', startOfDay.toISOString())
+        .lte('timestamp', endOfDay.toISOString());
         
     const setNumber = (count || 0) + 1;
     
@@ -205,11 +246,11 @@ export const logSet = async (payload, isSyncing = false) => {
         .insert({
             exercise_id,
             user_id: userId,
-            week,
+            week: null, // Deprecated
             weight,
             reps,
             set_number: setNumber,
-            timestamp: new Date().toISOString()
+            timestamp: finalTimestamp
         })
         .select()
         .single();
@@ -340,7 +381,7 @@ export const deleteWorkout = async (workoutType) => {
 
 
 
-export const getDashboardStats = async (user) => {
+export const getDashboardStats = async (user, weekOffset = 0) => {
     try {
         const userId = await getUserId(user);
         if (!userId) return { success: false };
@@ -434,12 +475,24 @@ export const getDashboardStats = async (user) => {
         // --- Weekly View Setup ---
         const now = new Date();
         const dayOfWeek = now.getDay(); // 0=Sun
-        const monday = new Date(now);
-        monday.setDate(now.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
-        monday.setHours(0, 0, 0, 0);
+        
+        // This Monday
+        const currentMonday = new Date(now);
+        currentMonday.setDate(now.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
+        currentMonday.setHours(0, 0, 0, 0);
 
-        // Workouts this week (unique active days)
-        const daysThisWeek = activeDayObjects.filter(d => d.date >= monday);
+        // Start of target week
+        const monday = new Date(currentMonday);
+        monday.setDate(currentMonday.getDate() - (weekOffset * 7));
+
+        // End of target week
+        const sunday = new Date(monday);
+        sunday.setDate(monday.getDate() + 7);
+        // If it's this week, cap it at 'now'
+        const rangeEnd = weekOffset === 0 ? new Date() : sunday;
+
+        // Filter active days for the target week
+        const daysThisWeek = activeDayObjects.filter(d => d.date >= monday && d.date < rangeEnd);
         const workoutsThisWeek = daysThisWeek.length;
         
         // Total volume this week
@@ -482,12 +535,6 @@ export const getDashboardStats = async (user) => {
         }
 
         // 6. PRs This Week
-        // Current week (use url-intended active week, approximating by the max week seen)
-        const currentWeek = (() => {
-            const weekNums = sets.map(s => s.week).filter(w => w != null);
-            return weekNums.length > 0 ? Math.max(...weekNums) : 1;
-        })();
-
         const setsByExercise = {};
         sets.forEach(s => {
             if (!setsByExercise[s.exercise_id]) setsByExercise[s.exercise_id] = [];
@@ -497,8 +544,8 @@ export const getDashboardStats = async (user) => {
         let prsThisWeek = 0;
         const prDetailsList = [];
         Object.entries(setsByExercise).forEach(([exId, exSets]) => {
-            const thisWeekSets = exSets.filter(s => s.week === currentWeek);
-            const prevWeekSets = exSets.filter(s => s.week < currentWeek);
+            const thisWeekSets = exSets.filter(s => new Date(s.timestamp) >= monday);
+            const prevWeekSets = exSets.filter(s => new Date(s.timestamp) < monday);
             
             if (thisWeekSets.length === 0 || prevWeekSets.length === 0) return;
             
@@ -523,6 +570,10 @@ export const getDashboardStats = async (user) => {
             setsLogged: d.setCount // optional context
         }));
 
+        // Label for the week range
+        const formatDate = (d) => d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+        const weekLabel = `${formatDate(monday)} - ${formatDate(new Date(sunday.getTime() - 1))}`;
+
         return {
             success: true,
             data: {
@@ -534,7 +585,8 @@ export const getDashboardStats = async (user) => {
                 weekly_heatmap: weeklyHeatmap,
                 prs_this_week: prsThisWeek,
                 pr_details_list: prDetailsList,
-                recent_activity: recentActivity
+                recent_activity: recentActivity,
+                week_label: weekLabel
             }
         };
     } catch(e) {
@@ -543,16 +595,30 @@ export const getDashboardStats = async (user) => {
     }
 };
 
-// Progress graph data: max weight per week per exercise
+// Progress graph data: max weight per chronological session per exercise
 export const getProgressData = async (user) => {
     try {
         const userId = await getUserId(user);
         if (!userId) return { success: false };
 
+        // All sets for the trend line (all time max per day)
         const { data: allSets } = await supabase
             .from('sets')
-            .select('exercise_id, weight, week')
-            .eq('user_id', userId);
+            .select('exercise_id, weight, timestamp')
+            .eq('user_id', userId)
+            .not('timestamp', 'is', null)
+            .order('timestamp', { ascending: true });
+
+        // Last 45 days for raw scatter dots
+        const cutoff = new Date();
+        cutoff.setDate(cutoff.getDate() - 45);
+        const { data: recentSets } = await supabase
+            .from('sets')
+            .select('exercise_id, weight, reps, timestamp')
+            .eq('user_id', userId)
+            .not('timestamp', 'is', null)
+            .gte('timestamp', cutoff.toISOString())
+            .order('timestamp', { ascending: true });
 
         const { data: allExercises } = await supabase
             .from('exercises')
@@ -563,18 +629,33 @@ export const getProgressData = async (user) => {
             allExercises.forEach(e => { exerciseNameMap[e.id] = e.name; });
         }
 
-        // Group by exercise -> week -> max weight
-        const progressMap = {}; // { exerciseId: { week: maxWeight } }
+        // Group by exercise -> Date string -> max weight (trend line)
+        const progressMap = {};
         const exercisesWithData = new Set();
 
         (allSets || []).forEach(s => {
             const exId = s.exercise_id;
             const w = s.weight ? parseFloat(s.weight) : 0;
+            const d = new Date(s.timestamp);
+            const dateStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+
             if (!progressMap[exId]) progressMap[exId] = {};
-            if (!progressMap[exId][s.week] || w > progressMap[exId][s.week]) {
-                progressMap[exId][s.week] = w;
+            if (!progressMap[exId][dateStr] || w > progressMap[exId][dateStr]) {
+                progressMap[exId][dateStr] = w;
             }
             exercisesWithData.add(exId);
+        });
+
+        // Build raw dots (every set) for last 45 days
+        const rawDotsMap = {};
+        (recentSets || []).forEach(s => {
+            const exId = s.exercise_id;
+            const w = s.weight ? parseFloat(s.weight) : 0;
+            if (w <= 0) return;
+            const d = new Date(s.timestamp);
+            const dateStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+            if (!rawDotsMap[exId]) rawDotsMap[exId] = [];
+            rawDotsMap[exId].push({ date: dateStr, weight: w, reps: s.reps || 0 });
         });
 
         // Build exercise list with names
@@ -583,16 +664,16 @@ export const getProgressData = async (user) => {
             name: exerciseNameMap[parseInt(id)] || `Exercise ${id}`
         })).sort((a, b) => a.name.localeCompare(b.name));
 
-        // Build progress series for each exercise
+        // Build chronological progress series per exercise (trend line)
         const progressSeries = {};
-        Object.entries(progressMap).forEach(([exId, weekData]) => {
-            const weeks = Object.keys(weekData).map(Number).sort((a, b) => a - b);
-            progressSeries[exId] = weeks.map(w => ({ week: w, maxWeight: weekData[w] }));
+        Object.entries(progressMap).forEach(([exId, dateData]) => {
+            const dates = Object.keys(dateData).sort((a, b) => a.localeCompare(b));
+            progressSeries[exId] = dates.map(d => ({ week: d, maxWeight: dateData[d] }));
         });
 
         return {
             success: true,
-            data: { exerciseList, progressSeries }
+            data: { exerciseList, progressSeries, rawDotsMap }
         };
     } catch (e) {
         console.error('getProgressData error', e);
@@ -628,6 +709,9 @@ export const getUserProfile = async (user) => {
         .eq('id', userId)
         .single();
     
+    if (data) {
+        data.goal = localStorage.getItem(`gym_buddy_goal_${userId}`);
+    }
     return data;
 };
 
@@ -635,12 +719,22 @@ export const updateUserProfile = async (user, profileData) => {
     const userId = await getUserId(user);
     if (!userId) return { success: false };
     
-    const { error } = await supabase
-        .from('users')
-        .update(profileData)
-        .eq('id', userId);
+    const { goal, ...restData } = profileData;
     
-    return { success: !error, message: error ? error.message : 'Updated' };
+    if (goal !== undefined && goal !== null) {
+        localStorage.setItem(`gym_buddy_goal_${userId}`, goal);
+    }
+    
+    if (Object.keys(restData).length > 0) {
+        const { error } = await supabase
+            .from('users')
+            .update(restData)
+            .eq('id', userId);
+        
+        return { success: !error, message: error ? error.message : 'Updated' };
+    }
+    
+    return { success: true, message: 'Updated' };
 };
 
 export const healthCheck = async () => {
@@ -650,42 +744,56 @@ export const healthCheck = async () => {
     return { status: "ok" };
 };
 
-// Returns a Set of week numbers where the user has logged sets for a given workout type
-export const getCompletedWeeks = async (user, workoutType) => {
+// Returns a Set of date strings (YYYY-MM-DD) where the user has logged sets for a given workout
+export const getCompletedDates = async (user, workoutType = null) => {
     try {
         const userId = await getUserId(user);
         if (!userId) return new Set();
 
-        // Get workout_id for this workout type
-        const { data: workoutData } = await supabase
-            .from('workouts')
-            .select('id')
-            .eq('name', workoutType)
-            .limit(1)
-            .single();
-        if (!workoutData) return new Set();
+        let exerciseIds = [];
+        if (workoutType) {
+            // Get workout_id for this workout type
+            const { data: workoutData } = await supabase
+                .from('workouts')
+                .select('id')
+                .eq('name', workoutType)
+                .limit(1)
+                .single();
+            if (!workoutData) return new Set();
 
-        // Get all exercises for this workout
-        const { data: exercises } = await supabase
-            .from('exercises')
-            .select('id')
-            .eq('workout_id', workoutData.id);
-        if (!exercises || exercises.length === 0) return new Set();
+            // Get all exercises for this workout
+            const { data: exercises } = await supabase
+                .from('exercises')
+                .select('id')
+                .eq('workout_id', workoutData.id);
+            if (!exercises || exercises.length === 0) return new Set();
 
-        const exerciseIds = exercises.map(e => e.id);
+            exerciseIds = exercises.map(e => e.id);
+        }
 
-        // Get distinct weeks with sets
-        const { data: sets } = await supabase
+        // Get distinct dates via timestamps (if workoutType is null, get ALL completed dates broadly)
+        let query = supabase
             .from('sets')
-            .select('week')
+            .select('timestamp')
             .eq('user_id', userId)
-            .in('exercise_id', exerciseIds)
-            .not('week', 'is', null);
+            .not('timestamp', 'is', null);
+            
+        if (exerciseIds.length > 0) {
+            query = query.in('exercise_id', exerciseIds);
+        }
 
-        const completedWeeks = new Set((sets || []).map(s => s.week));
-        return completedWeeks;
+        const { data: sets } = await query;
+
+        const dateSet = new Set();
+        (sets || []).forEach(s => {
+            const d = new Date(s.timestamp);
+            const dateStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+            dateSet.add(dateStr);
+        });
+        
+        return dateSet;
     } catch (e) {
-        console.error('getCompletedWeeks error', e);
+        console.error('getCompletedDates error', e);
         return new Set();
     }
 };

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useUser } from '../context/UserContext';
-import { Dumbbell, Plus, User, X, Settings, Pencil } from 'lucide-react';
+import { Plus, User, X, Settings, Pencil } from 'lucide-react';
+import AppLogo from './AppLogo';
 import { getUsers, deleteUser } from '../services/api';
 
 export default function Login() {
@@ -68,8 +69,8 @@ export default function Login() {
         }} className="animate-fade-in">
 
             <div style={{ marginBottom: '3rem', display: 'flex', flexDirection: 'column', alignItems: 'center' }} className="animate-slide-up">
-                <Dumbbell size={64} color="var(--primary-color)" />
-                <h1 style={{ marginTop: '1rem', marginBottom: '0.5rem', fontSize: '2.5rem' }}>Gym Buddy</h1>
+                <AppLogo size={100} style={{ marginBottom: '1rem', border: '2px solid rgba(187,134,252,0.3)', padding: '4px' }} />
+                <h1 style={{ marginTop: '0', marginBottom: '0.5rem', fontSize: '2.5rem' }}>Gym Buddy</h1>
                 <p style={{ color: 'var(--text-dim)', fontSize: '1.1rem' }}>Who is crushing it today?</p>
             </div>
 
