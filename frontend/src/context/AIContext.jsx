@@ -134,22 +134,31 @@ export function AIProvider({ children }) {
     }, [persona, userContext, user, addMessage]);
 
     // Called by WorkoutView when the first set is logged
-    const workoutStarted = useCallback(async (workoutType, exercises) => {
+    const workoutStarted = useCallback(async (workoutType, exercises, performanceCtx = null) => {
         if (workoutActive) return; // Don't trigger twice
         setWorkoutActive(true);
+        setIsOpen(true);
 
         const currentPersona = PERSONAS[persona] || PERSONAS.garima;
-        const personaName = currentPersona.name;
 
-        // Proactive greeting via Gemini
-        const greeting = `My user ${user || 'there'} just started their ${workoutType || 'workout'} session and logged their first set (${exercises?.[0]?.name || 'an exercise'}). Give them a short, punchy motivational workout start message. Stay in character.`;
+        // Build smart coaching instruction based on performance data
+        let greeting = `My user ${user || 'there'} just started their ${workoutType || 'workout'} session and logged their first set (${exercises?.[0]?.name || 'an exercise'}). Give them a short, punchy motivational workout start message. Stay in character.`;
+
+        if (performanceCtx?.performanceNote) {
+            if (performanceCtx.performanceStatus === 'STAGNANT') {
+                greeting = `My user ${user || 'there'} just logged their first set of their ${workoutType || 'workout'} session. PERFORMANCE DATA: ${performanceCtx.performanceNote}. Based on this stagnancy, give a very specific, encouraging push — suggest the exact weight or reps increase. Stay in character. Be direct and motivating.`;
+            } else if (performanceCtx.performanceStatus === 'PROGRESSING') {
+                greeting = `My user ${user || 'there'} just started their ${workoutType || 'workout'} session. PERFORMANCE DATA: ${performanceCtx.performanceNote}. Celebrate this specific progress enthusiastically! Stay in character.`;
+            }
+        }
 
         setIsTyping(true);
         try {
             const ctx = { 
                 ...(userContext || { userName: user || 'there' }), 
                 todayWorkout: workoutType, 
-                exercises: exercises?.map(e=>e.name) 
+                exercises: exercises?.map(e=>e.name),
+                performanceStatus: performanceCtx?.performanceStatus || 'NEW',
             };
             setUserContext(ctx);
             const systemPrompt = currentPersona.buildSystemPrompt(ctx);

@@ -424,6 +424,28 @@ export default function WorkoutView() {
             }
         }
 
+        // Stagnancy Detection: compare current set against last week's best
+        let performanceStatus = 'NEW';
+        let performanceNote = null;
+        if (exercise && exercise.prev_week_sets && exercise.prev_week_sets.length > 0) {
+            const prevMaxWeight = Math.max(...exercise.prev_week_sets.map(s => parseFloat(s.weight) || 0));
+            const prevMaxReps = Math.max(
+                ...exercise.prev_week_sets
+                    .filter(s => parseFloat(s.weight) === prevMaxWeight)
+                    .map(s => parseInt(s.reps) || 0)
+            );
+            if (newWeight > prevMaxWeight) {
+                performanceStatus = 'PROGRESSING';
+                performanceNote = `${exercise.name}: weight increased from ${prevMaxWeight}kg to ${newWeight}kg — celebrate this win!`;
+            } else if (newWeight === prevMaxWeight && parseInt(reps) <= prevMaxReps) {
+                performanceStatus = 'STAGNANT';
+                performanceNote = `${exercise.name}: same as last week (${newWeight}kg x ${prevMaxReps}). Suggest pushing to ${newWeight + 2.5}kg or adding 2 more reps.`;
+            } else {
+                performanceStatus = 'PROGRESSING';
+                performanceNote = `${exercise.name}: more reps than last week (${parseInt(reps)} vs ${prevMaxReps}) at ${newWeight}kg — great progress!`;
+            }
+        }
+
         const optimisticSet = {
             id: Date.now(), // temp id
             exercise_id: exerciseId,
@@ -463,7 +485,7 @@ export default function WorkoutView() {
             // Trigger AI workout coach on the very first set of the session
             if (!hasTriggeredAI.current) {
                 hasTriggeredAI.current = true;
-                aiWorkoutStarted(type, exercises);
+                aiWorkoutStarted(type, exercises, { performanceStatus, performanceNote });
             }
 
             return true;
