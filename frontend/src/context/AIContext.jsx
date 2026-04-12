@@ -107,6 +107,8 @@ export function AIProvider({ children }) {
             // Easter egg check
             if (persona === 'garima' && text.toLowerCase().includes('bitch')) {
                 reply = "such a bitch asss";
+            } else if (persona === 'garima' && text.toLowerCase().trim() === 'fair') {
+                reply = "enough";
             } else {
                 // Send to Gemini (pass history MINUS the last user message, which we add inside sendMessage)
                 const historyForRequest = geminiHistory.current.slice(0, -1);
