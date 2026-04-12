@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useTimer } from '../context/TimerContext';
-import { X, Play, Square, Timer as TimerIcon, Mic, MicOff, RotateCcw, Volume2 } from 'lucide-react';
+import { X, Play, Square, Timer as TimerIcon, RotateCcw, Flag } from 'lucide-react';
 
 // ─── Web Audio beep generator ──────────────────────────────────────────────
 const audioCtxRef = { current: null };
@@ -28,26 +28,114 @@ function playBeep(frequency = 880, durationMs = 120, volume = 0.3) {
 }
 
 function playStartSound() { playBeep(784, 100, 0.25); setTimeout(() => playBeep(1047, 150, 0.3), 120); }
-function playStopSound() { playBeep(523, 200, 0.25); }
+function playStopSound()  { playBeep(523, 200, 0.25); }
 function playResetSound() { playBeep(440, 80, 0.15); setTimeout(() => playBeep(330, 80, 0.15), 100); }
+function playLapSound()   { playBeep(660, 80, 0.18); }
+
+// ─── Apple-style scroll wheel picker ───────────────────────────────────────
+const ITEM_H = 48;
+
+function ScrollPicker({ count, value, onChange, label }) {
+    const listRef = useRef(null);
+    const isTouching = useRef(false);
+    const isScrolling = useRef(false);
+
+    // Snap to the selected value on mount and when value changes externally
+    useEffect(() => {
+        if (listRef.current && !isTouching.current && !isScrolling.current) {
+            listRef.current.scrollTop = value * ITEM_H;
+        }
+    }, [value]);
+
+    const handleScroll = useCallback(() => {
+        if (!listRef.current) return;
+        isScrolling.current = true;
+        const idx = Math.round(listRef.current.scrollTop / ITEM_H);
+        const clamped = Math.max(0, Math.min(count - 1, idx));
+        onChange(clamped);
+        clearTimeout(listRef._scrollEnd);
+        listRef._scrollEnd = setTimeout(() => { isScrolling.current = false; }, 150);
+    }, [count, onChange]);
+
+    return (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
+            <span style={{ fontSize: '0.65rem', letterSpacing: '2px', color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase' }}>
+                {label}
+            </span>
+            <div style={{ position: 'relative', width: '80px', height: ITEM_H * 3 }}>
+                {/* Fade top */}
+                <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: ITEM_H, background: 'linear-gradient(to bottom, rgba(13,13,26,1) 0%, transparent 100%)', zIndex: 2, pointerEvents: 'none' }} />
+                {/* Selection highlight */}
+                <div style={{
+                    position: 'absolute', top: ITEM_H, left: 0, right: 0, height: ITEM_H,
+                    border: '1px solid rgba(187,134,252,0.25)',
+                    borderRadius: '8px',
+                    background: 'rgba(187,134,252,0.08)',
+                    zIndex: 1, pointerEvents: 'none'
+                }} />
+                {/* Fade bottom */}
+                <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: ITEM_H, background: 'linear-gradient(to top, rgba(13,13,26,1) 0%, transparent 100%)', zIndex: 2, pointerEvents: 'none' }} />
+
+                <div
+                    ref={listRef}
+                    onScroll={handleScroll}
+                    onTouchStart={() => { isTouching.current = true; }}
+                    onTouchEnd={() => { isTouching.current = false; }}
+                    style={{
+                        position: 'absolute', inset: 0, overflowY: 'scroll',
+                        scrollSnapType: 'y mandatory',
+                        scrollbarWidth: 'none',
+                        msOverflowStyle: 'none',
+                        WebkitOverflowScrolling: 'touch',
+                        paddingTop: ITEM_H,
+                        paddingBottom: ITEM_H,
+                    }}
+                >
+                    <style>{`div::-webkit-scrollbar { display: none; }`}</style>
+                    {Array.from({ length: count }, (_, i) => (
+                        <div
+                            key={i}
+                            onClick={() => {
+                                onChange(i);
+                                if (listRef.current) listRef.current.scrollTo({ top: i * ITEM_H, behavior: 'smooth' });
+                            }}
+                            style={{
+                                height: ITEM_H,
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                scrollSnapAlign: 'start',
+                                fontSize: i === value ? '2rem' : '1.4rem',
+                                fontWeight: i === value ? '200' : '200',
+                                color: i === value ? '#fff' : 'rgba(255,255,255,0.2)',
+                                fontVariantNumeric: 'tabular-nums',
+                                transition: 'font-size 0.15s ease, color 0.15s ease',
+                                cursor: 'pointer',
+                                userSelect: 'none',
+                                letterSpacing: '1px',
+                            }}
+                        >
+                            {i.toString().padStart(2, '0')}
+                        </div>
+                    ))}
+                </div>
+            </div>
+        </div>
+    );
+}
 
 // ─── Component ─────────────────────────────────────────────────────────────
 export default function GlobalTimer() {
     const { mode, duration, elapsed, motivation, startStopwatch, startCountdown, closeTimer } = useTimer();
-    const [cdInput, setCdInput] = useState(60);
+
+    // Countdown picker state (minutes + seconds)
+    const [cdMinutes, setCdMinutes] = useState(1);
+    const [cdSeconds, setCdSeconds] = useState(30);
 
     // ── Stopwatch state ───────────────────────────────────────────────────
     const [swRunning, setSwRunning] = useState(false);
     const [swElapsed, setSwElapsed] = useState(0);
+    const [laps, setLaps] = useState([]);
     const swStartRef = useRef(null);
     const swRafRef = useRef(null);
-
-    // ── Voice state ───────────────────────────────────────────────────────
-    const recognitionRef = useRef(null);
-    const [voiceEnabled, setVoiceEnabled] = useState(false);
-    const [voiceListening, setVoiceListening] = useState(false);
-    const [voiceFeedback, setVoiceFeedback] = useState('');
-    const voiceFeedbackTimeout = useRef(null);
 
     // Refs for latest state in callbacks
     const swRunningRef = useRef(swRunning);
@@ -68,7 +156,6 @@ export default function GlobalTimer() {
         setSwRunning(true);
         swRafRef.current = requestAnimationFrame(updateSw);
         playStartSound();
-        showVoiceFeedback('▶ Started');
     }, [updateSw]);
 
     const handleSwStop = useCallback(() => {
@@ -77,23 +164,28 @@ export default function GlobalTimer() {
         if (swRafRef.current) cancelAnimationFrame(swRafRef.current);
         setSwElapsed(Date.now() - swStartRef.current);
         playStopSound();
-        showVoiceFeedback('⏸ Stopped');
     }, []);
 
     const handleSwReset = useCallback(() => {
         setSwRunning(false);
         setSwElapsed(0);
+        setLaps([]);
         swStartRef.current = null;
         if (swRafRef.current) cancelAnimationFrame(swRafRef.current);
         playResetSound();
-        showVoiceFeedback('↺ Reset');
     }, []);
 
-    function showVoiceFeedback(msg) {
-        setVoiceFeedback(msg);
-        if (voiceFeedbackTimeout.current) clearTimeout(voiceFeedbackTimeout.current);
-        voiceFeedbackTimeout.current = setTimeout(() => setVoiceFeedback(''), 2500);
-    }
+    const handleLap = useCallback(() => {
+        if (!swRunningRef.current && swElapsedRef.current === 0) return;
+        const elapsed = swElapsedRef.current;
+        setLaps(prev => {
+            const prevTotal = prev.length > 0 ? prev[prev.length - 1].total : 0;
+            const split = elapsed - prevTotal;
+            return [...prev, { total: elapsed, split, index: prev.length + 1 }];
+        });
+        playLapSound();
+        if (navigator.vibrate) navigator.vibrate(30);
+    }, []);
 
     // ── Close handler ─────────────────────────────────────────────────────
     const handleClose = useCallback(() => {
@@ -102,119 +194,23 @@ export default function GlobalTimer() {
             if (swRafRef.current) cancelAnimationFrame(swRafRef.current);
         }
         setSwElapsed(0);
+        setLaps([]);
         swStartRef.current = null;
-        stopVoice();
         closeTimer();
     }, [closeTimer]);
-
-    // ── Voice recognition (toggle-based, much more reliable) ──────────────
-    const startVoice = useCallback(() => {
-        const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (!SpeechRec) {
-            showVoiceFeedback('Voice not supported');
-            return;
-        }
-
-        // Stop any existing instance
-        if (recognitionRef.current) {
-            try { recognitionRef.current.abort(); } catch(e) {}
-            recognitionRef.current = null;
-        }
-
-        const rec = new SpeechRec();
-        rec.continuous = true;
-        rec.interimResults = true;
-        rec.lang = 'en-US';
-        rec.maxAlternatives = 3;
-
-        rec.onresult = (e) => {
-            for (let i = e.resultIndex; i < e.results.length; i++) {
-                // Process only final results for action
-                if (!e.results[i].isFinal) continue;
-
-                // Check all alternatives for better accuracy
-                for (let j = 0; j < e.results[i].length; j++) {
-                    const t = e.results[i][j].transcript.trim().toLowerCase();
-                    if (t.includes('start') || t.includes('go') || t.includes('begin')) {
-                        handleSwStart();
-                        return;
-                    }
-                    if (t.includes('stop') || t.includes('pause') || t.includes('hold')) {
-                        handleSwStop();
-                        return;
-                    }
-                    if (t.includes('reset') || t.includes('clear') || t.includes('restart')) {
-                        handleSwReset();
-                        return;
-                    }
-                }
-            }
-        };
-
-        rec.onstart = () => setVoiceListening(true);
-        rec.onerror = (e) => {
-            if (e.error === 'not-allowed') {
-                showVoiceFeedback('Microphone blocked');
-                setVoiceEnabled(false);
-            }
-            setVoiceListening(false);
-        };
-        rec.onend = () => {
-            setVoiceListening(false);
-            // Auto-restart only if voice is still enabled
-            if (recognitionRef.current) {
-                setTimeout(() => {
-                    if (recognitionRef.current) {
-                        try { recognitionRef.current.start(); } catch(e) {}
-                    }
-                }, 300);
-            }
-        };
-
-        try {
-            rec.start();
-            recognitionRef.current = rec;
-            setVoiceEnabled(true);
-            playBeep(1200, 60, 0.15);
-            showVoiceFeedback('🎤 Listening… say "start", "stop", or "reset"');
-        } catch(e) {
-            showVoiceFeedback('Could not start mic');
-        }
-    }, [handleSwStart, handleSwStop, handleSwReset]);
-
-    const stopVoice = useCallback(() => {
-        if (recognitionRef.current) {
-            const old = recognitionRef.current;
-            recognitionRef.current = null;
-            try { old.abort(); } catch(e) {}
-        }
-        setVoiceEnabled(false);
-        setVoiceListening(false);
-    }, []);
-
-    const toggleVoice = useCallback(() => {
-        if (voiceEnabled) {
-            stopVoice();
-            showVoiceFeedback('🔇 Voice off');
-        } else {
-            startVoice();
-        }
-    }, [voiceEnabled, startVoice, stopVoice]);
 
     // Cleanup on unmount / mode change
     useEffect(() => {
         if (mode !== 'stopwatch') {
-            stopVoice();
             if (swRafRef.current) cancelAnimationFrame(swRafRef.current);
         }
-    }, [mode, stopVoice]);
+    }, [mode]);
 
     useEffect(() => {
         return () => {
-            stopVoice();
             if (swRafRef.current) cancelAnimationFrame(swRafRef.current);
         };
-    }, [stopVoice]);
+    }, []);
 
     // ── Keyboard support ──────────────────────────────────────────────────
     useEffect(() => {
@@ -224,24 +220,19 @@ export default function GlobalTimer() {
                 e.preventDefault();
                 swRunningRef.current ? handleSwStop() : handleSwStart();
             }
-            if (e.code === 'KeyR') {
-                e.preventDefault();
-                handleSwReset();
-            }
-            if (e.code === 'Escape') {
-                e.preventDefault();
-                handleClose();
-            }
+            if (e.code === 'KeyR') { e.preventDefault(); handleSwReset(); }
+            if (e.code === 'KeyL') { e.preventDefault(); handleLap(); }
+            if (e.code === 'Escape') { e.preventDefault(); handleClose(); }
         };
         window.addEventListener('keydown', handler);
         return () => window.removeEventListener('keydown', handler);
-    }, [mode, handleSwStart, handleSwStop, handleSwReset, handleClose]);
+    }, [mode, handleSwStart, handleSwStop, handleSwReset, handleLap, handleClose]);
 
     // ── Render nothing if hidden ──────────────────────────────────────────
     if (mode === 'hidden') return null;
 
     // ═══════════════════════════════════════════════════════════════════════
-    // FULLSCREEN STOPWATCH (Apple Clock inspired)
+    // FULLSCREEN STOPWATCH
     // ═══════════════════════════════════════════════════════════════════════
     if (mode === 'stopwatch') {
         const totalMs = swElapsed;
@@ -254,227 +245,209 @@ export default function GlobalTimer() {
             ? `${h} hours ${m} minutes ${s} seconds`
             : `${m} minutes ${s} seconds`;
 
+        const circumference = 2 * Math.PI * 140;
+        const strokeDashoffset = circumference - ((s + cs / 100) / 60) * circumference;
+
+        const formatMs = (ms) => {
+            const s = Math.floor((ms / 1000) % 60);
+            const m = Math.floor((ms / 60000) % 60);
+            const cs = Math.floor((ms % 1000) / 10);
+            return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}.${cs.toString().padStart(2, '0')}`;
+        };
+
         return (
             <div
                 role="application"
                 aria-label="Stopwatch"
                 style={{
                     position: 'fixed', inset: 0,
-                    background: '#000', color: '#fff', zIndex: 10000,
+                    background: 'linear-gradient(160deg, #0a0a0f 0%, #0d0d1a 40%, #12101f 100%)',
+                    color: '#fff', zIndex: 10000,
                     display: 'flex', flexDirection: 'column',
                     alignItems: 'center', justifyContent: 'center',
-                    fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, Helvetica, sans-serif',
+                    fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
                     userSelect: 'none', touchAction: 'manipulation',
                     overflow: 'hidden'
                 }}
             >
-                {/* ── Header ──────────────────────────────────────────── */}
+                {/* Header */}
                 <div style={{
                     position: 'absolute', top: 0, left: 0, right: 0,
                     padding: '16px 20px',
                     display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                    background: 'linear-gradient(180deg, rgba(0,0,0,0.8) 0%, transparent 100%)',
                     zIndex: 1
                 }}>
                     <div style={{
-                        display: 'flex', alignItems: 'center', gap: '10px',
-                        fontSize: '1rem', color: 'rgba(255,255,255,0.6)', fontWeight: '500'
+                        display: 'flex', alignItems: 'center', gap: '8px',
+                        fontSize: '0.8rem', color: 'rgba(255,255,255,0.3)',
+                        fontWeight: '400', letterSpacing: '2px', textTransform: 'uppercase'
                     }}>
-                        <TimerIcon size={18} aria-hidden="true" />
+                        <TimerIcon size={14} />
                         <span>Stopwatch</span>
                     </div>
-
                     <button
                         onClick={handleClose}
-                        aria-label="Close stopwatch"
+                        aria-label="Close"
                         style={{
-                            background: 'rgba(255,255,255,0.12)', border: 'none',
-                            borderRadius: '50%', width: '36px', height: '36px',
+                            background: 'rgba(255,255,255,0.06)', border: 'none',
+                            borderRadius: '50%', width: '34px', height: '34px',
                             display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            color: '#fff', cursor: 'pointer', transition: 'background 0.2s'
+                            color: 'rgba(255,255,255,0.5)', cursor: 'pointer'
                         }}
                     >
-                        <X size={20} />
+                        <X size={18} />
                     </button>
                 </div>
 
-                {/* ── Voice feedback toast ─────────────────────────────── */}
-                <div
-                    aria-live="polite"
-                    aria-atomic="true"
-                    style={{
-                        position: 'absolute', top: '70px',
-                        padding: '8px 20px', borderRadius: '20px',
-                        background: voiceFeedback ? 'rgba(255,255,255,0.12)' : 'transparent',
-                        color: voiceListening ? '#34c759' : 'rgba(255,255,255,0.7)',
-                        fontSize: '0.9rem', fontWeight: '500',
-                        transition: 'all 0.3s ease',
-                        opacity: voiceFeedback ? 1 : 0,
-                        transform: voiceFeedback ? 'translateY(0)' : 'translateY(-8px)',
-                        pointerEvents: 'none'
-                    }}
-                >
-                    {voiceFeedback}
-                </div>
-
-                {/* ── Time display ─────────────────────────────────────── */}
-                <div
-                    role="timer"
-                    aria-label={timeLabel}
-                    aria-live="off"
-                    style={{
-                        display: 'flex', alignItems: 'baseline',
-                        marginBottom: '12vh',
-                        lineHeight: 1,
-                        fontVariantNumeric: 'tabular-nums',
-                        fontWeight: '100',
-                        letterSpacing: '1px'
-                    }}
-                >
-                    {h > 0 && (
-                        <>
-                            <span style={{ fontSize: 'clamp(3rem, 12vw, 5.5rem)' }}>{h.toString().padStart(2, '0')}</span>
-                            <span style={{ fontSize: 'clamp(2rem, 8vw, 3.5rem)', color: 'rgba(255,255,255,0.35)', margin: '0 4px' }}>:</span>
-                        </>
-                    )}
-                    <span style={{ fontSize: 'clamp(3rem, 12vw, 5.5rem)' }}>
-                        {m.toString().padStart(2, '0')}
-                    </span>
-                    <span style={{ fontSize: 'clamp(2rem, 8vw, 3.5rem)', color: 'rgba(255,255,255,0.35)', margin: '0 4px' }}>:</span>
-                    <span style={{ fontSize: 'clamp(3rem, 12vw, 5.5rem)' }}>
-                        {s.toString().padStart(2, '0')}
-                    </span>
-                    <span style={{ fontSize: 'clamp(1.5rem, 6vw, 3rem)', color: 'rgba(255,255,255,0.45)', margin: '0 2px' }}>.</span>
-                    <span style={{ fontSize: 'clamp(1.5rem, 6vw, 3rem)', color: 'rgba(255,255,255,0.45)' }}>
-                        {cs.toString().padStart(2, '0')}
-                    </span>
-                </div>
-
-                {/* ── Control buttons ──────────────────────────────────── */}
+                {/* Ring + Time */}
                 <div style={{
-                    display: 'flex', alignItems: 'center',
-                    gap: 'clamp(30px, 8vw, 60px)'
+                    position: 'relative', width: '300px', height: '300px',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    marginBottom: laps.length > 0 ? '4vh' : '8vh'
                 }}>
+                    <svg width="300" height="300" style={{ position: 'absolute', transform: 'rotate(-90deg)' }}>
+                        <circle cx="150" cy="150" r="140" fill="none" stroke="rgba(187,134,252,0.07)" strokeWidth="3" />
+                        <circle
+                            cx="150" cy="150" r="140" fill="none"
+                            stroke={swRunning ? '#bb86fc' : 'rgba(187,134,252,0.25)'}
+                            strokeWidth="3"
+                            strokeDasharray={circumference}
+                            strokeDashoffset={strokeDashoffset}
+                            strokeLinecap="round"
+                            style={{
+                                transition: swRunning ? 'stroke-dashoffset 0.1s linear' : 'none',
+                                filter: swRunning ? 'drop-shadow(0 0 8px rgba(187,134,252,0.5))' : 'none'
+                            }}
+                        />
+                    </svg>
+
+                    <div
+                        role="timer"
+                        aria-label={timeLabel}
+                        aria-live="off"
+                        style={{ display: 'flex', alignItems: 'baseline', fontVariantNumeric: 'tabular-nums', fontWeight: '200', letterSpacing: '2px' }}
+                    >
+                        {h > 0 && (
+                            <>
+                                <span style={{ fontSize: 'clamp(2.2rem, 9vw, 4rem)' }}>{h.toString().padStart(2, '0')}</span>
+                                <span style={{ fontSize: 'clamp(1.2rem, 5vw, 2rem)', color: 'rgba(187,134,252,0.4)', margin: '0 2px' }}>:</span>
+                            </>
+                        )}
+                        <span style={{ fontSize: 'clamp(2.2rem, 9vw, 4rem)' }}>{m.toString().padStart(2, '0')}</span>
+                        <span style={{ fontSize: 'clamp(1.2rem, 5vw, 2rem)', color: 'rgba(187,134,252,0.4)', margin: '0 2px' }}>:</span>
+                        <span style={{ fontSize: 'clamp(2.2rem, 9vw, 4rem)' }}>{s.toString().padStart(2, '0')}</span>
+                        <span style={{ fontSize: 'clamp(0.9rem, 3.5vw, 1.6rem)', color: 'rgba(255,255,255,0.28)', marginLeft: '3px' }}>
+                            .{cs.toString().padStart(2, '0')}
+                        </span>
+                    </div>
+                </div>
+
+                {/* Lap list (last 3 laps, newest on top) */}
+                {laps.length > 0 && (
+                    <div style={{
+                        width: '220px', marginBottom: '4vh',
+                        display: 'flex', flexDirection: 'column', gap: '4px'
+                    }}>
+                        {[...laps].reverse().slice(0, 3).map(lap => (
+                            <div key={lap.index} style={{
+                                display: 'flex', justifyContent: 'space-between',
+                                padding: '5px 12px', borderRadius: '8px',
+                                background: 'rgba(255,255,255,0.05)',
+                                fontSize: '0.78rem', fontVariantNumeric: 'tabular-nums'
+                            }}>
+                                <span style={{ color: 'rgba(187,134,252,0.6)' }}>Lap {lap.index}</span>
+                                <span style={{ color: 'rgba(255,255,255,0.5)' }}>{formatMs(lap.split)}</span>
+                                <span style={{ color: 'rgba(255,255,255,0.3)' }}>{formatMs(lap.total)}</span>
+                            </div>
+                        ))}
+                        {laps.length > 3 && (
+                            <div style={{ textAlign: 'center', fontSize: '0.7rem', color: 'rgba(255,255,255,0.18)' }}>
+                                +{laps.length - 3} more
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {/* Controls */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 'clamp(20px, 5vw, 44px)' }}>
                     {/* Reset */}
                     <button
                         onClick={handleSwReset}
-                        aria-label="Reset stopwatch"
+                        aria-label="Reset"
                         disabled={swElapsed === 0}
                         style={{
-                            width: '80px', height: '80px', borderRadius: '50%',
-                            background: 'rgba(255,255,255,0.08)',
-                            border: '2px solid rgba(255,255,255,0.2)',
-                            color: swElapsed === 0 ? 'rgba(255,255,255,0.25)' : '#fff',
-                            fontSize: '0.95rem', fontWeight: '400',
-                            display: 'flex', flexDirection: 'column',
-                            alignItems: 'center', justifyContent: 'center', gap: '4px',
+                            width: '68px', height: '68px', borderRadius: '50%',
+                            background: 'rgba(255,255,255,0.04)',
+                            border: '1.5px solid rgba(255,255,255,0.1)',
+                            color: swElapsed === 0 ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.6)',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
                             cursor: swElapsed === 0 ? 'default' : 'pointer',
-                            transition: 'all 0.2s',
-                            WebkitTapHighlightColor: 'transparent'
+                            transition: 'all 0.2s', WebkitTapHighlightColor: 'transparent'
                         }}
                     >
-                        <RotateCcw size={20} aria-hidden="true" />
-                        <span style={{ fontSize: '0.7rem' }}>Reset</span>
+                        <RotateCcw size={22} />
                     </button>
 
                     {/* Start / Stop */}
                     {swRunning ? (
                         <button
                             onClick={handleSwStop}
-                            aria-label="Stop stopwatch"
+                            aria-label="Stop"
                             style={{
                                 width: '88px', height: '88px', borderRadius: '50%',
-                                background: 'rgba(255, 59, 48, 0.2)',
-                                border: '3px solid #ff3b30',
+                                background: 'radial-gradient(circle, rgba(255,59,48,0.22) 0%, rgba(255,59,48,0.06) 100%)',
+                                border: '2px solid rgba(255,59,48,0.55)',
                                 color: '#ff3b30',
-                                fontSize: '0.95rem', fontWeight: '500',
-                                display: 'flex', flexDirection: 'column',
-                                alignItems: 'center', justifyContent: 'center', gap: '4px',
-                                cursor: 'pointer', transition: 'all 0.15s',
-                                WebkitTapHighlightColor: 'transparent'
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                cursor: 'pointer', transition: 'all 0.2s', WebkitTapHighlightColor: 'transparent',
+                                boxShadow: '0 0 28px rgba(255,59,48,0.12)'
                             }}
                         >
-                            <Square size={26} fill="#ff3b30" aria-hidden="true" />
+                            <Square size={28} fill="#ff3b30" />
                         </button>
                     ) : (
                         <button
                             onClick={handleSwStart}
-                            aria-label="Start stopwatch"
+                            aria-label="Start"
                             autoFocus
                             style={{
                                 width: '88px', height: '88px', borderRadius: '50%',
-                                background: 'rgba(52, 199, 89, 0.2)',
-                                border: '3px solid #34c759',
-                                color: '#34c759',
-                                fontSize: '0.95rem', fontWeight: '500',
-                                display: 'flex', flexDirection: 'column',
-                                alignItems: 'center', justifyContent: 'center', gap: '4px',
-                                cursor: 'pointer', transition: 'all 0.15s',
-                                WebkitTapHighlightColor: 'transparent'
+                                background: 'radial-gradient(circle, rgba(187,134,252,0.28) 0%, rgba(187,134,252,0.07) 100%)',
+                                border: '2px solid rgba(187,134,252,0.55)',
+                                color: '#bb86fc',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                cursor: 'pointer', transition: 'all 0.2s', WebkitTapHighlightColor: 'transparent',
+                                boxShadow: '0 0 28px rgba(187,134,252,0.18)'
                             }}
                         >
-                            <Play size={26} fill="#34c759" aria-hidden="true" style={{ marginLeft: '4px' }} />
+                            <Play size={30} fill="#bb86fc" style={{ marginLeft: '4px' }} />
                         </button>
                     )}
 
-                    {/* Voice toggle */}
+                    {/* Lap */}
                     <button
-                        onClick={toggleVoice}
-                        aria-label={voiceEnabled ? 'Disable voice control' : 'Enable voice control'}
-                        aria-pressed={voiceEnabled}
+                        onClick={handleLap}
+                        aria-label="Lap"
+                        disabled={swElapsed === 0}
                         style={{
-                            width: '80px', height: '80px', borderRadius: '50%',
-                            background: voiceEnabled
-                                ? (voiceListening ? 'rgba(52, 199, 89, 0.15)' : 'rgba(255, 159, 10, 0.15)')
-                                : 'rgba(255,255,255,0.08)',
-                            border: `2px solid ${voiceEnabled
-                                ? (voiceListening ? '#34c759' : '#ff9f0a')
-                                : 'rgba(255,255,255,0.2)'}`,
-                            color: voiceEnabled
-                                ? (voiceListening ? '#34c759' : '#ff9f0a')
-                                : 'rgba(255,255,255,0.5)',
-                            fontSize: '0.95rem', fontWeight: '400',
-                            display: 'flex', flexDirection: 'column',
-                            alignItems: 'center', justifyContent: 'center', gap: '4px',
-                            cursor: 'pointer', transition: 'all 0.2s',
-                            WebkitTapHighlightColor: 'transparent',
-                            position: 'relative'
+                            width: '68px', height: '68px', borderRadius: '50%',
+                            background: 'rgba(255,255,255,0.04)',
+                            border: '1.5px solid rgba(255,255,255,0.1)',
+                            color: swElapsed === 0 ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.6)',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            cursor: swElapsed === 0 ? 'default' : 'pointer',
+                            transition: 'all 0.2s', WebkitTapHighlightColor: 'transparent'
                         }}
                     >
-                        {voiceEnabled ? <Mic size={20} aria-hidden="true" /> : <MicOff size={20} aria-hidden="true" />}
-                        <span style={{ fontSize: '0.65rem' }}>Voice</span>
-
-                        {/* Active pulse indicator */}
-                        {voiceListening && (
-                            <div style={{
-                                position: 'absolute', top: '6px', right: '6px',
-                                width: '8px', height: '8px', borderRadius: '50%',
-                                background: '#34c759',
-                                animation: 'pulse 1.5s ease-in-out infinite'
-                            }} />
-                        )}
+                        <Flag size={20} />
                     </button>
-                </div>
-
-                {/* ── Keyboard hint ────────────────────────────────────── */}
-                <div
-                    aria-hidden="true"
-                    style={{
-                        position: 'absolute', bottom: '30px',
-                        display: 'flex', gap: '16px',
-                        color: 'rgba(255,255,255,0.2)', fontSize: '0.75rem'
-                    }}
-                >
-                    <span>Space — Start / Stop</span>
-                    <span>R — Reset</span>
-                    <span>Esc — Close</span>
                 </div>
             </div>
         );
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // REST TIMER / COUNTDOWN / STANDBY (compact bottom sheet)
+    // REST TIMER / COUNTDOWN / STANDBY
     // ═══════════════════════════════════════════════════════════════════════
     const formatTime = (secs) => {
         const m = Math.floor(secs / 60);
@@ -499,7 +472,7 @@ export default function GlobalTimer() {
                 width: '90%', maxWidth: '400px',
                 background: is10s ? '#ff3b30' : 'var(--surface-color)',
                 border: `1px solid ${is10s ? '#ff3b30' : 'var(--surface-highlight)'}`,
-                borderRadius: '16px',
+                borderRadius: '20px',
                 boxShadow: is10s
                     ? '0 0 30px rgba(255,59,48,0.5)'
                     : '0 10px 40px rgba(0,0,0,0.5)',
@@ -515,7 +488,7 @@ export default function GlobalTimer() {
                     aria-valuemax={100}
                     style={{
                         position: 'absolute',
-                        bottom: 0, left: 0, height: '4px',
+                        bottom: 0, left: 0, height: '3px',
                         background: 'var(--primary-color)',
                         width: `${progress}%`,
                         transition: 'width 1s linear'
@@ -526,13 +499,13 @@ export default function GlobalTimer() {
             <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <TimerIcon size={18} color={is10s ? '#fff' : 'var(--primary-color)'} aria-hidden="true" />
+                        <TimerIcon size={16} color={is10s ? '#fff' : 'var(--primary-color)'} />
                         <span style={{
-                            fontWeight: 'bold', fontSize: '0.9rem',
+                            fontWeight: '600', fontSize: '0.8rem',
                             color: is10s ? '#fff' : 'var(--text-dim)',
-                            textTransform: 'uppercase'
+                            textTransform: 'uppercase', letterSpacing: '1.5px'
                         }}>
-                            {mode === 'standby' ? 'Timer Panel' : mode === 'rest' ? 'Rest Time' : 'Countdown'}
+                            {mode === 'standby' ? 'Timer' : mode === 'rest' ? 'Rest' : 'Countdown'}
                         </span>
                     </div>
                     <button
@@ -544,36 +517,42 @@ export default function GlobalTimer() {
                             cursor: 'pointer', display: 'flex', padding: '4px'
                         }}
                     >
-                        <X size={20} />
+                        <X size={18} />
                     </button>
                 </div>
 
                 {mode === 'standby' ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '8px' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '4px' }}>
+                        {/* Stopwatch button */}
                         <button
                             className="button-primary"
                             onClick={startStopwatch}
-                            aria-label="Start stopwatch"
-                            style={{ display: 'flex', justifyContent: 'center', gap: '8px', padding: '14px' }}
+                            style={{ display: 'flex', justifyContent: 'center', gap: '8px', padding: '14px', borderRadius: '12px' }}
                         >
-                            <Play size={18} aria-hidden="true" /> Start Stopwatch
+                            <Play size={18} /> Start Stopwatch
                         </button>
-                        <div style={{ display: 'flex', gap: '8px' }}>
-                            <input
-                                type="number"
-                                value={cdInput}
-                                onChange={e => setCdInput(parseInt(e.target.value) || 0)}
-                                aria-label="Countdown duration in seconds"
-                                min={1}
-                                style={{ width: '80px', textAlign: 'center' }}
-                            />
+
+                        {/* Scroll wheel pickers */}
+                        <div>
+                            <div style={{
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                gap: '8px', marginBottom: '8px'
+                            }}>
+                                <ScrollPicker count={60} value={cdMinutes} onChange={setCdMinutes} label="min" />
+                                <span style={{ fontSize: '2rem', fontWeight: '100', color: 'rgba(255,255,255,0.25)', paddingTop: '24px' }}>:</span>
+                                <ScrollPicker count={60} value={cdSeconds} onChange={setCdSeconds} label="sec" />
+                            </div>
                             <button
                                 className="button-secondary"
-                                onClick={() => startCountdown(cdInput)}
-                                aria-label={`Start ${cdInput} second countdown`}
-                                style={{ flex: 1 }}
+                                disabled={cdMinutes === 0 && cdSeconds === 0}
+                                onClick={() => startCountdown(cdMinutes * 60 + cdSeconds)}
+                                style={{
+                                    width: '100%', padding: '12px',
+                                    borderRadius: '12px', fontWeight: '600',
+                                    opacity: (cdMinutes === 0 && cdSeconds === 0) ? 0.4 : 1
+                                }}
                             >
-                                Start Countdown (s)
+                                Start Countdown
                             </button>
                         </div>
                     </div>
@@ -583,7 +562,7 @@ export default function GlobalTimer() {
                             role="timer"
                             aria-live="polite"
                             style={{
-                                fontSize: '3rem', fontWeight: '900',
+                                fontSize: '3.2rem', fontWeight: '800',
                                 fontVariantNumeric: 'tabular-nums',
                                 lineHeight: 1,
                                 color: is10s ? '#fff' : 'var(--text-color)',
@@ -594,9 +573,9 @@ export default function GlobalTimer() {
                         </div>
                         {mode === 'rest' && remaining > 0 && (
                             <div style={{
-                                fontSize: '0.9rem',
+                                fontSize: '0.85rem',
                                 color: is10s ? 'rgba(255,255,255,0.8)' : 'var(--primary-color)',
-                                marginTop: '8px', fontWeight: 'bold', fontStyle: 'italic'
+                                marginTop: '8px', fontWeight: '500', fontStyle: 'italic'
                             }}>
                                 "{motivation}"
                             </div>
@@ -604,7 +583,7 @@ export default function GlobalTimer() {
                         {mode === 'rest' && remaining <= 0 && (
                             <div style={{
                                 fontSize: '1rem',
-                                color: is10s ? '#fff' : 'var(--primary-color)',
+                                color: 'var(--primary-color)',
                                 marginTop: '8px', fontWeight: 'bold'
                             }}>
                                 Back to work! 🚀

@@ -53,12 +53,29 @@ const ExerciseCard = React.memo(({ exercise, onLog, onUpdate, onDelete, onDelete
     const setsComplete = sets.length >= 3;
 
     let overloadTip = null;
+    let isStagnant = false;
     if (exercise.prev_week_sets && exercise.prev_week_sets.length > 0) {
         const topSet = exercise.prev_week_sets.reduce((max, s) => {
             return (parseFloat(s.weight) > parseFloat(max.weight)) ? s : max;
         }, exercise.prev_week_sets[0]);
-        const nextWeight = parseFloat(topSet.weight) + 2.5; 
-        overloadTip = `💡 Last week: ${topSet.weight}kg × ${topSet.reps} → Try ${nextWeight}kg today!`;
+        const prevMaxWeight = parseFloat(topSet.weight);
+        const prevMaxReps = parseInt(topSet.reps);
+
+        // Check if current session's sets have beaten last week
+        const currentSets = exercise.sets || [];
+        const currentMaxWeight = currentSets.length > 0 
+            ? Math.max(...currentSets.map(s => parseFloat(s.weight) || 0)) 
+            : 0;
+        const currentMaxRepsAtWeight = currentSets.length > 0
+            ? Math.max(...currentSets.filter(s => parseFloat(s.weight) === currentMaxWeight).map(s => parseInt(s.reps) || 0))
+            : 0;
+
+        // Stagnant = no current sets logged yet OR current best hasn't beaten last week  
+        if (currentSets.length === 0 || (currentMaxWeight <= prevMaxWeight && currentMaxRepsAtWeight <= prevMaxReps)) {
+            isStagnant = true;
+            const nextWeight = prevMaxWeight + 2.5; 
+            overloadTip = `Last week: ${topSet.weight}kg × ${topSet.reps} → Try ${nextWeight}kg today!`;
+        }
     }
 
     return (
@@ -107,8 +124,8 @@ const ExerciseCard = React.memo(({ exercise, onLog, onUpdate, onDelete, onDelete
                         />
                     </div>
                 </div>
-                {/* Last week set pills */}
-                {exercise.prev_week_sets && exercise.prev_week_sets.length > 0 && (
+                {/* Last week set pills — only show when stagnant */}
+                {isStagnant && exercise.prev_week_sets && exercise.prev_week_sets.length > 0 && (
                     <div style={{ display: 'flex', gap: '6px', marginTop: '8px', flexWrap: 'wrap' }}>
                         <span style={{ fontSize: '0.7rem', color: 'var(--text-dim)', alignSelf: 'center', fontWeight: '500' }}>Last</span>
                         {exercise.prev_week_sets.map((s, idx) => (
