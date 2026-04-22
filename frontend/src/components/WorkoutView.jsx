@@ -63,8 +63,8 @@ const ExerciseCard = React.memo(({ exercise, onLog, onUpdate, onDelete, onDelete
 
         // Check if current session's sets have beaten last week
         const currentSets = exercise.sets || [];
-        const currentMaxWeight = currentSets.length > 0 
-            ? Math.max(...currentSets.map(s => parseFloat(s.weight) || 0)) 
+        const currentMaxWeight = currentSets.length > 0
+            ? Math.max(...currentSets.map(s => parseFloat(s.weight) || 0))
             : 0;
         const currentMaxRepsAtWeight = currentSets.length > 0
             ? Math.max(...currentSets.filter(s => parseFloat(s.weight) === currentMaxWeight).map(s => parseInt(s.reps) || 0))
@@ -73,7 +73,7 @@ const ExerciseCard = React.memo(({ exercise, onLog, onUpdate, onDelete, onDelete
         // Stagnant = no current sets logged yet OR current best hasn't beaten last week  
         if (currentSets.length === 0 || (currentMaxWeight <= prevMaxWeight && currentMaxRepsAtWeight <= prevMaxReps)) {
             isStagnant = true;
-            const nextWeight = prevMaxWeight + 2.5; 
+            const nextWeight = prevMaxWeight + 2.5;
             overloadTip = `Last week: ${topSet.weight}kg × ${topSet.reps} → Try ${nextWeight}kg today!`;
         }
     }
@@ -124,8 +124,8 @@ const ExerciseCard = React.memo(({ exercise, onLog, onUpdate, onDelete, onDelete
                         />
                     </div>
                 </div>
-                {/* Last week set pills — only show when stagnant */}
-                {isStagnant && exercise.prev_week_sets && exercise.prev_week_sets.length > 0 && (
+                {/* Last week set pills — always show */}
+                {exercise.prev_week_sets && exercise.prev_week_sets.length > 0 && (
                     <div style={{ display: 'flex', gap: '6px', marginTop: '8px', flexWrap: 'wrap' }}>
                         <span style={{ fontSize: '0.7rem', color: 'var(--text-dim)', alignSelf: 'center', fontWeight: '500' }}>Last</span>
                         {exercise.prev_week_sets.map((s, idx) => (
@@ -307,16 +307,16 @@ const ExerciseCard = React.memo(({ exercise, onLog, onUpdate, onDelete, onDelete
 export default function WorkoutView() {
     const { type } = useParams();
     const [searchParams, setSearchParams] = useSearchParams();
-    
+
     // Default to today using localized string generator
     const getLocalToday = () => {
         const d = new Date();
         return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     };
-    
+
     const dateStr = searchParams.get('date') || getLocalToday();
     const split = searchParams.get('split') || 'A';
-    
+
     const { user } = useUser();
     const { addNotification } = useNotifications();
     const { workoutStarted: aiWorkoutStarted } = useAI();
@@ -347,7 +347,8 @@ export default function WorkoutView() {
             const cachedData = localStorage.getItem(cacheKey);
             let hasCache = false;
 
-            if (cachedData) {
+            // Only set from cache if we don't have active data yet
+            if (cachedData && exercises.length === 0) {
                 try {
                     const parsed = JSON.parse(cachedData);
                     let savedOrder = [];
@@ -383,7 +384,8 @@ export default function WorkoutView() {
                 // If a newer fetch was started or optimistic update happened, skip this stale response
                 if (fetchGenRef.current !== thisGen) return;
                 if (optimisticRef.current) {
-                    optimisticRef.current = false;
+                    // Don't reset optimisticRef here yet, wait for mutation handler to finish
+                    setLoading(false);
                     return;
                 }
 
@@ -419,6 +421,14 @@ export default function WorkoutView() {
         };
         load();
     }, [type, dateStr, split, trigger, user]);
+
+    // Automatically sync state to cache to avoid stale overwrites during background loads
+    useEffect(() => {
+        if (exercises.length > 0) {
+            const cacheKey = `gym_buddy_cache_${type}_${split}_${dateStr}_${user}`;
+            localStorage.setItem(cacheKey, JSON.stringify(exercises));
+        }
+    }, [exercises, type, split, dateStr, user]);
 
     const handleLogSet = async (exerciseId, weight, reps) => {
         const newWeight = parseFloat(weight);
@@ -505,6 +515,7 @@ export default function WorkoutView() {
                 aiWorkoutStarted(type, exercises, { performanceStatus, performanceNote });
             }
 
+            optimisticRef.current = false;
             return true;
         } else {
             // Rollback optimistic update
@@ -514,6 +525,7 @@ export default function WorkoutView() {
                 }
                 return ex;
             }));
+            optimisticRef.current = false;
             addNotification('error', '❌ Failed to log set', res.message || 'Please try again', '❌');
             return false;
         }
@@ -541,6 +553,7 @@ export default function WorkoutView() {
             setExercises(prevExercises);
             addNotification('error', '❌ Failed to update set', res.message || 'Please try again', '❌');
         }
+        optimisticRef.current = false;
     };
 
     const handleDeleteSet = async (id) => {
@@ -560,6 +573,7 @@ export default function WorkoutView() {
             setExercises(prevExercises);
             addNotification('error', '❌ Failed to delete set', res.message || 'Please try again', '❌');
         }
+        optimisticRef.current = false;
     };
 
     const handleAddExercise = async (e) => {
@@ -626,6 +640,7 @@ export default function WorkoutView() {
             localStorage.setItem(`gym_buddy_order_${type}_${split}`, JSON.stringify(oldIds));
             addNotification('error', '❌ Failed to delete exercise', res.message || 'Please try again', '❌');
         }
+        optimisticRef.current = false;
     };
 
     const handleUpdateNotes = async (exerciseId, setupNotes) => {
@@ -636,8 +651,10 @@ export default function WorkoutView() {
         if (!res.success) {
             setExercises(prevExercises);
             addNotification('error', '❌ Failed to save notes', res.message || 'Please try again', '❌');
+            optimisticRef.current = false;
             return false;
         }
+        optimisticRef.current = false;
         return true;
     };
 
@@ -827,7 +844,7 @@ export default function WorkoutView() {
                             {isEditing ? 'Done Editing' : 'Edit Exercises'}
                         </button>
                     </div>
-                    
+
                     <div style={{ marginTop: '1rem' }}>
                         <button
                             className="button-primary"
@@ -841,12 +858,12 @@ export default function WorkoutView() {
             )}
 
             {showSummaryModal && (
-                <WorkoutSummaryModal 
-                    exercises={exercises} 
-                    type={type} 
-                    date={dateStr} 
-                    split={split} 
-                    onClose={() => setShowSummaryModal(false)} 
+                <WorkoutSummaryModal
+                    exercises={exercises}
+                    type={type}
+                    date={dateStr}
+                    split={split}
+                    onClose={() => setShowSummaryModal(false)}
                 />
             )}
 
